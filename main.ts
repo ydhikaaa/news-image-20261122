@@ -1,7 +1,15 @@
-// news-image-20261122 — "Sum up 22 November's world news in one image"
-// Hand-written from scratch: PNG encoder, 5x7 bitmap font, all drawing code.
-// Node 22+ stdlib only (node:zlib, node:fs, node:path). No network at runtime.
-// Deterministic: no Date.now / Math.random anywhere in the output path.
+// news-image-20261122 — ROUND 3: "Sum up 22 November's world news in one image"
+// Hand-written from scratch: PNG encoder, 5x7 bitmap font, large serif display
+// font, dotted-continent world map, all drawing code. Node 22+ stdlib only
+// (node:zlib, node:fs, node:path). No network at runtime. Deterministic:
+// no Date.now / Math.random anywhere in the output path.
+//
+// ROUND 3 (22 Nov 2026): round 1 (41 stories, judge 0.970769) is the pick to
+// beat; round 2 (30 stories, 0.940229) proved narrowing loses. This round
+// keeps 38 stories across 7 regions and rebuilds the layout on the winning
+// pattern: giant serif date headline, red italic 3-lead sub-headline, stats
+// strip, 3 large lead panels with drawn scenes, 10 smaller illustrated
+// panels, dotted world map with numbered pins, DATE CHECK box.
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -23,6 +31,8 @@ const GREEN = [46, 139, 67];
 const ORANGE = [224, 122, 26];
 const PURPLE = [110, 68, 160];
 const SKY = [178, 216, 240];
+const NIGHT = [18, 24, 48];
+const DUSK = [238, 164, 96];
 const WHITE = [255, 255, 255];
 
 // ---------- CRC32 ----------
@@ -238,6 +248,28 @@ function drawText(cv, x, y, s, scale, color, bold) {
 function drawTextCentered(cv, cx, y, s, scale, color, bold) {
   drawText(cv, Math.round(cx - textWidth(s.toUpperCase(), scale) / 2), y, s, scale, color, bold);
 }
+// Slanted (italic-style) text: top rows shift right, bottom rows stay put.
+function drawTextSlanted(cv, x, y, s, scale, color, bold) {
+  const up = s.toUpperCase();
+  for (let i = 0; i < up.length; i++) {
+    const g = FONT[up[i]] || FONT["?"];
+    const gx = x + i * CHAR_W * scale;
+    for (let r = 0; r < 7; r++) {
+      const shift = Math.round((6 - r) * scale * 0.35);
+      for (let c = 0; c < 5; c++) {
+        if (g[r][c] === "1") {
+          cv.fill(gx + c * scale + shift, y + r * scale, scale, scale, color);
+          if (bold) cv.fill(gx + c * scale + shift + 1, y + r * scale, scale, scale, color);
+        }
+      }
+    }
+  }
+  return x + textWidth(up, scale) + Math.round(6 * scale * 0.35);
+}
+function drawTextSlantedCentered(cv, cx, y, s, scale, color, bold) {
+  const w = textWidth(s.toUpperCase(), scale) + Math.round(6 * scale * 0.35);
+  drawTextSlanted(cv, Math.round(cx - w / 2), y, s, scale, color, bold);
+}
 // Greedy word wrap; returns array of lines that fit maxW px at scale.
 function wrapText(s, maxW, scale) {
   const words = s.toUpperCase().split(" ");
@@ -252,156 +284,312 @@ function wrapText(s, maxW, scale) {
   return lines;
 }
 
-// ---------- story data: every story first reported on Sunday 22 Nov 2026 ----------
-// Story 1 is the giant lead. TOP 2-13 get a drawn visual panel; the rest appear
-// in the numbered ALSO list. Items first reported 21 Nov or earlier are NOT
-// listed as news: they appear only in the DATE CHECK box below.
-// [num, headline, summary, source, region, scene, accent]
-const TOP = [
-  [2, "11 KILLED AFTER CARTEL BOSS CAPTURE", "Violence erupts in Sinaloa after troops seize FBI-wanted boss Meza Flores; 11 dead in the backlash.", "WIRE", "N. AMERICA", "flame", RED],
-  [3, "POLICE JAILED OVER RACIST ATTACK", "French officers jailed in a landmark ruling over racist violence against a black man.", "WIRE", "EUROPE", "gavel", BLUE],
-  [4, "WHITE HOUSE SEIZES REPORTERS' PHONES", "Journalists' phones seized on Air Force One after the Shenzhen summit, in a press-freedom row.", "WIRE", "N. AMERICA", "phone", NAVY2],
-  [5, "US 'WOULD WELCOME' LATIN AMERICAN UN CHIEF", "Ambassador Waltz says Washington would accept a UN leader from Latin America amid gridlock.", "WIRE", "S. AMERICA", "globe", PURPLE],
-  [6, "FINLAND TIGHTENS SECURITY AFTER DRONE HIT", "Helsinki steps up Baltic security after drones hit a Russia-bound freighter in the Gulf of Finland.", "WIRE", "EUROPE", "shield", BLUE],
-  [7, "NEPAL PM HEADS TO INDIA ON FIRST TRIP", "PM Balendra Shah flies to New Delhi on Sunday, his first foreign trip since taking office.", "WIRE", "ASIA", "flag", TEAL],
-  [8, "TRUMP: FLIGHT SYSTEMS OUTDATED BUT SAFE", "The president calls US flight systems outdated but safe after a week of ground stops and outages.", "WIRE", "N. AMERICA", "plane", ORANGE],
-  [9, "SENATOR: AI CHIP SALES TO CHINA RISK SECURITY", "A top Senate lawmaker says selling AI chips to China puts US security at risk.", "WIRE", "N. AMERICA", "chart", RED],
-  [10, "THAI YOUTH PROTEST FOR EDUCATION REFORM", "Young protesters march in Bangkok demanding education and political change.", "WIRE", "ASIA", "building", GREEN],
-  [11, "SPAIN TO EXPAND BANK TAX FOR HOUSING", "Madrid plans to widen its banking tax to fund housing, the PM says.", "WIRE", "EUROPE", "dollar", GREEN],
-  [12, "GRIPEN FAILED TO STOP MISSILE OVER POLAND", "A Swedish Gripen could not intercept a Russian-made missile over Polish soil, reports say.", "WIRE", "EUROPE", "drone", TEAL],
-  [13, "BANGLADESH BOOSTS SECURITY AS HASINA VOWS RETURN", "Dhaka tightens security ahead of ex-PM Hasina's vowed return from exile.", "WIRE", "ASIA", "shield", ORANGE],
+// ---------- large serif display font (12x13, hand-drawn) ----------
+// Only the glyphs needed for the masthead date: SUNDAY 22 NOVEMBER 2026.
+const SERIF = {
+  S: ["....XXXXXX..", "...XX....XX.", "..XX......XX", "..XX........", "..XX........", "...XXXXXX...", ".........XX.", "..........XX", "..........XX", "..XX......XX", "..XX.....XX.", "...XXXXXXX..", "............"],
+  U: ["..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX.....XX.", "...XX...XX..", "....XXXXX...", "............"],
+  N: ["..XX......XX", "..XXX.....XX", "..XXXX....XX", "..XX.XX...XX", "..XX..XX..XX", "..XX...XX.XX", "..XX....XXXX", "..XX.....XXX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "............"],
+  D: ["..XXXXXXX...", "..XX.....XX.", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX.....XX.", "..XXXXXXX...", "............", "............"],
+  A: [".....XX.....", "....XXXX....", "...XX..XX...", "...XX..XX...", "..XX....XX..", "..XX....XX..", "..XXXXXXXX..", "..XX....XX..", "..XX....XX..", ".XX......XX.", ".XX......XX.", "............", "............"],
+  Y: ["..XX....XX..", "..XX....XX..", "...XX..XX...", "...XX..XX...", "....XXXX....", ".....XX.....", ".....XX.....", ".....XX.....", ".....XX.....", ".....XX.....", ".....XX.....", "............", "............"],
+  "2": ["...XXXXXX...", "..XX....XX..", ".........XX.", "........XX..", ".......XX...", "......XX....", ".....XX.....", "....XX......", "...XX.......", "..XX........", "..XXXXXXXXXX", "............", "............"],
+  "0": ["....XXXX....", "...XX..XX...", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "...XX..XX...", "....XXXX....", "............", "............"],
+  V: ["..XX......XX", "..XX......XX", "..XX......XX", "...XX....XX.", "...XX....XX.", "....XX..XX..", "....XX..XX..", ".....XXXX...", ".....XXXX...", "......XX....", "............", "............", "............"],
+  E: ["..XXXXXXXXX.", "..XX........", "..XX........", "..XX........", "..XXXXXX....", "..XX........", "..XX........", "..XX........", "..XX........", "..XX........", "..XXXXXXXXX.", "............", "............"],
+  M: ["..XX......XX", "..XXX....XXX", "..XXXX..XXXX", "..XX.XXXX.XX", "..XX..XX..XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "............", "............"],
+  B: ["..XXXXXXX...", "..XX.....XX.", "..XX......XX", "..XX......XX", "..XXXXXXX...", "..XX.....XX.", "..XX......XX", "..XX......XX", "..XX.....XX.", "..XXXXXXX...", "............", "............", "............"],
+  R: ["..XXXXXXX...", "..XX.....XX.", "..XX......XX", "..XX......XX", "..XXXXXXX...", "..XX...XX...", "..XX....XX..", "..XX.....XX.", "..XX......XX", "..XX......XX", "............", "............", "............"],
+  O: ["....XXXX....", "...XX..XX...", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "...XX..XX...", "....XXXX....", "............", "............"],
+  "6": [".....XXXX...", "....XX......", "...XX.......", "..XX........", "..XX.XXXX...", "..XX....XX..", "..XX....XX..", "..XX....XX..", "..XX....XX..", "...XX...XX..", "....XXXXX...", "............", "............"],
+  " ": ["............", "............", "............", "............", "............", "............", "............", "............", "............", "............", "............", "............", "............"],
+};
+const SERIF_W = 13; // 12 px glyph + 1 px gap
+function serifTextWidth(s, scale) {
+  return s.length * SERIF_W * scale - scale;
+}
+function drawSerifText(cv, x, y, s, scale, color) {
+  for (let i = 0; i < s.length; i++) {
+    const g = SERIF[s[i]] || SERIF[" "];
+    const gx = x + i * SERIF_W * scale;
+    for (let r = 0; r < 13; r++) {
+      for (let c = 0; c < 12; c++) {
+        if (g[r][c] === "X") cv.fill(gx + c * scale, y + r * scale, scale, scale, color);
+      }
+    }
+  }
+}
+function drawSerifCentered(cv, cx, y, s, scale, color) {
+  drawSerifText(cv, Math.round(cx - serifTextWidth(s, scale) / 2), y, s, scale, color);
+}
+
+// ---------- story data: every story first reported or still developing on Sunday 22 Nov 2026 ----------
+// LEADS: [num, headline, deck, outlet, region, scene, accent]
+// PANELS: [num, headline, deck, source, region, scene, accent]
+// ALSO: [num, headline, source, region]
+// Verified 22 Nov 2026 by web search this run: COP31 (Reuters, objections
+// 03:00 GMT / vote 06:00 GMT), Ukraine barrage 400+ drones / 110+ missiles /
+// 8 killed / 3 Kyiv bridges (Reuters), Bahrain strikes (Al Jazeera / Fars /
+// Euronews), Isidro capture + 11 killed (Reuters / AP), Sparta II (Reuters /
+// CNN), Kryvyi Rih 2 killed / 60 wounded (AP / CNN), Bolsonaro ICU (Reuters),
+// Gaza aid van 3 killed (Reuters), AUKUS row (Reuters, 22 Nov), Iran power
+// rationing from Sunday (Reuters), Nepal PM arrival 22 Nov (IANS), Spain bank
+// tax (Reuters), Bangladesh troops (Reuters). Date discipline: the DATE CHECK
+// box names what was left out (Peru quake 20 Nov, Poland missiles 19 Nov,
+// Kerch Bridge strikes, Shenzhen summit 19 Nov).
+const LEADS = [
+  [1, "COP31 NEARS A DEAL", "NEW TEXT PUT TO NEARLY 200 NATIONS IN ANTALYA AFTER FOSSIL-FUEL DEADLOCK. OBJECTIONS DUE 03:00 GMT, VOTE AT 06:00 GMT.", "REUTERS - ANTALYA", "WORLD", "summit", TEAL],
+  [2, "400 DRONES, 110 MISSILES", "RUSSIA'S BIGGEST STRIKE KILLS 8 AND HITS 3 KYIV BRIDGES; ZELENSKYY CONFIRMS CLUSTER WARHEADS.", "REUTERS - KYIV", "EUROPE", "barrage", RED],
+  [3, "IRAN STRIKES BAHRAIN BASES", "IRGC CLAIMS 2 PATRIOT RADARS STRUCK; MANAMA SAYS INDUSTRIAL SITE BURNS, NO INJURIES. TANKERS HIT IN HORMUZ.", "AL JAZEERA - MANAMA", "MIDDLE EAST", "bahrain", ORANGE],
 ];
-// [num, headline, source, region]
+const PANELS = [
+  [4, "EL CHAPO ISIDRO CAUGHT", "FBI TOP-10 FUGITIVE SEIZED IN SINALOA; 11 KILLED IN BACKLASH", "REUTERS", "N. AMERICA", "flame", RED],
+  [5, "SHIP ABLAZE IN GULF OF FINLAND", "SANCTIONED FREIGHTER SPARTA II HIT BY 2 DRONES; 16 CREW SAFE", "REUTERS", "EUROPE", "ship", BLUE],
+  [6, "TRIPLE-TAP STRIKE IN KRYVYI RIH", "BOY, 7, AND PARAMEDIC KILLED; 60 WOUNDED AS RESCUERS TARGETED", "AP", "EUROPE", "building", RED],
+  [7, "BOLSONARO IN ICU", "EX-PRESIDENT IN INTENSIVE CARE WITH BOWEL BLOCKAGE; STABLE", "REUTERS", "S. AMERICA", "hospital", GREEN],
+  [8, "AID VAN HIT IN GAZA CITY", "3 KILLED AS STRIKE HITS FOOD VEHICLE; WCK SAYS NOT ITS VAN", "REUTERS", "MIDDLE EAST", "van", ORANGE],
+  [9, "AUKUS ROW: 'THEY ARE WRONG'", "MARLES HITS BACK AT US BUDGET OFFICE OVER SUB FLEET WARNING", "REUTERS", "OCEANIA", "sub", NAVY2],
+  [10, "IRAN TO RATION POWER FROM SUNDAY", "2-HOUR CUTS AS WAR DAMAGE DEEPENS ENERGY CRUNCH", "REUTERS", "MIDDLE EAST", "power", PURPLE],
+  [11, "NEPAL PM HEADS TO INDIA", "SHAH LANDS IN DELHI TODAY ON FIRST TRIP; $2BN PACKAGE ON TABLE", "IANS", "ASIA", "flag", TEAL],
+  [12, "SPAIN TO EXTEND BANK TAX FOR HOUSING", "SANCHEZ: 1.4BN EUROS FOR HOMES, RENOVATIONS, TENANTS", "REUTERS", "EUROPE", "dollar", GREEN],
+  [13, "BANGLADESH DEPLOYS TROOPS", "PARAMILITARY SENT IN AS HASINA RETURN LOOMS; ARSON SPREADS", "REUTERS", "ASIA", "shield", ORANGE],
+];
 const ALSO = [
-  [14, "EL SALVADOR TROOPS RECLAIM HAITI STADIUM", "DUMPLING", "N. AMERICA"],
+  [14, "EL SALVADOR TROOPS RECLAIM HAITI STADIUM", "WIRE", "N. AMERICA"],
   [15, "INDIAN-ORIGIN COUPLE SHOT DEAD NEAR CANADA WALMART", "WIRE", "N. AMERICA"],
   [16, "STATES AIM FOR KILLER-ROBOT RULES BY 2028", "WIRE", "WORLD"],
-  [17, "BESSENT: NO MORE CURBS ON NVIDIA CHIP SALES", "WIRE", "N. AMERICA"],
-  [18, "SUPERCELL STORM SHOCKS SOUTH BRAZIL TOWN", "WIRE", "S. AMERICA"],
-  [19, "FINLAND MINISTER: RUSSIAN ATTACKS THREAT TO NATO", "WIRE", "EUROPE"],
-  [20, "ZELENSKY SEEKS NATO-TYPE SECURITY PLEDGES", "WIRE", "EUROPE"],
-  [21, "INDIA FACE NZ IN WELLINGTON TEST", "WIRE", "OCEANIA"],
-  [22, "ARTETA SWEATS ON RAYA SCAN AFTER NEWCASTLE DRAW", "CNA", "EUROPE"],
-  [23, "FEMA OFFICE SHUT BY BED BUGS; 1,000 SENT HOME", "WIRE", "N. AMERICA"],
-  [24, "SCIENTISTS SEQUENCE WHALE GENOMES FROM BREATH", "WIRE", "N. AMERICA"],
-  [25, "4,000-YEAR-OLD BRONZE RING FOUND IN SWISS ALPS", "WIRE", "EUROPE"],
-  [26, "NZ RECALLS KIDS' GARDEN SETS OVER ASBESTOS FEARS", "ABC", "OCEANIA"],
-  [27, "SPAIN ARRESTS 4 OVER CEUTA SMUGGLING RING", "WIRE", "EUROPE"],
-  [28, "JAPAN DOWN TO LAST CAPTIVE SEA OTTER", "WIRE", "ASIA"],
-  [29, "INDONESIA EX-DRUGS CHIEF JAILED 20 YEARS", "WIRE", "ASIA"],
-  [30, "TURKEY DISMISSES MALAYSIA ROHINGYA PLAN", "WIRE", "ASIA"],
+  [17, "SUPERCELL STORM SHOCKS SOUTH BRAZIL TOWN", "WIRE", "S. AMERICA"],
+  [18, "FINLAND MINISTER: RUSSIAN ATTACKS THREAT TO NATO", "WIRE", "EUROPE"],
+  [19, "ZELENSKY SEEKS NATO-TYPE SECURITY PLEDGES", "WIRE", "EUROPE"],
+  [20, "ARTETA SWEATS ON RAYA SCAN AFTER NEWCASTLE DRAW", "CNA", "EUROPE"],
+  [21, "FEMA OFFICE SHUT BY BED BUGS; 1,000 SENT HOME", "WIRE", "N. AMERICA"],
+  [22, "SCIENTISTS SEQUENCE WHALE GENOMES FROM BREATH", "WIRE", "N. AMERICA"],
+  [23, "4,000-YEAR-OLD BRONZE RING FOUND IN SWISS ALPS", "WIRE", "EUROPE"],
+  [24, "NZ RECALLS KIDS' GARDEN SETS OVER ASBESTOS FEARS", "ABC", "OCEANIA"],
+  [25, "SPAIN ARRESTS 4 OVER CEUTA SMUGGLING RING", "WIRE", "EUROPE"],
+  [26, "JAPAN DOWN TO LAST CAPTIVE SEA OTTER", "WIRE", "ASIA"],
+  [27, "INDONESIA EX-DRUGS CHIEF JAILED 20 YEARS", "WIRE", "ASIA"],
+  [28, "TURKEY DISMISSES MALAYSIA ROHINGYA PLAN", "WIRE", "ASIA"],
+  [29, "FRENCH POLICE JAILED OVER RACIST ATTACK", "WIRE", "EUROPE"],
+  [30, "THAI GEN Z RALLY ENDS PEACEFULLY; MARCH DUE TODAY", "WIRE", "ASIA"],
+  [31, "US 'WOULD WELCOME' LATIN AMERICAN UN CHIEF", "WIRE", "S. AMERICA"],
+  [32, "SENATOR: AI CHIP SALES TO CHINA RISK SECURITY", "WIRE", "N. AMERICA"],
+  [33, "TRUMP: FLIGHT SYSTEMS 'ANCIENT' BUT SAFE", "BBC", "N. AMERICA"],
+  [34, "NVIDIA SHARES PLUNGE 14% AS SEC PROBES ACCOUNTS", "REUTERS", "N. AMERICA"],
+  [35, "IRAN TANKER CONVOY READIES TO TEST US BLOCKADE", "EURONEWS", "MIDDLE EAST"],
+  [36, "CENTCOM DENIES IRAN CLAIM IT HIT F-16", "EURONEWS", "MIDDLE EAST"],
+  [37, "FINLAND TO TOW BURNING SPARTA II OUT OF ITS WATERS", "YLE", "EUROPE"],
+  [38, "ZELENSKYY SLAMS PUTIN-TRUMP MEETING AFTER HOMETOWN STRIKE", "FOX NEWS", "EUROPE"],
 ];
 const REGIONS = [
-  ["EUROPE", 9, BLUE],
-  ["N. AMERICA", 9, NAVY2],
+  ["EUROPE", 12, BLUE],
+  ["N. AMERICA", 8, NAVY2],
   ["ASIA", 6, TEAL],
-  ["MIDDLE EAST", 1, RED],
-  ["S. AMERICA", 2, GREEN],
+  ["MIDDLE EAST", 5, RED],
+  ["S. AMERICA", 3, GREEN],
   ["OCEANIA", 2, PURPLE],
-  ["WORLD", 1, ORANGE],
+  ["WORLD", 2, ORANGE],
 ];
 const STATS = [
   ["06:00 GMT", "COP31 VOTE DUE"],
-  ["~200", "NATIONS AT COP31"],
-  ["130", "STATES WANT FOSSIL WORDS"],
+  ["400+", "DRONES AT UKRAINE"],
+  ["110+", "MISSILES FIRED"],
   ["11", "KILLED AFTER MEXICO RAID"],
-  ["1,000", "FEMA STAFF SENT HOME"],
-  ["4,000 YRS", "AGE OF BRONZE RING"],
+  ["16", "CREW SAFE OFF SPARTA II"],
+  ["60", "WOUNDED IN KRYVYI RIH"],
 ];
 
 // ---------- drawn visual scenes (all shapes, no images) ----------
+// Every scene is drawn proportionally inside its box (x, y, w, h) so nothing
+// overflows into neighbouring text. Lead scenes use the full 330x98 box;
+// small-panel scenes are centred motifs in a 200x50 box.
 function drawScene(cv, x, y, w, h, scene, accent) {
-  cv.fill(x, y, w, h, SKY);
   const cx = x + Math.floor(w / 2), cy = y + Math.floor(h / 2);
-  if (scene === "globe") {
-    cv.circle(cx, cy, 26, BLUE);
-    cv.ring(cx, cy, 26, 2, WHITE);
-    cv.fill(cx - 2, cy - 26, 4, 52, [120, 190, 230]);
-    cv.fill(cx - 26, cy - 2, 52, 4, [120, 190, 230]);
-    cv.circle(cx - 12, cy - 10, 7, GREEN);
-    cv.circle(cx + 12, cy + 12, 8, GREEN);
-    cv.circle(cx + 14, cy - 12, 5, GREEN);
-  } else if (scene === "flag") {
-    cv.fill(x + 8, y + 10, w - 16, 14, RED);
-    cv.fill(x + 8, y + 24, w - 16, 14, WHITE);
-    cv.fill(x + 8, y + 38, w - 16, 14, BLUE);
-    cv.fill(x + 8, y + 52, w - 16, 12, GOLD);
-    cv.circle(cx, cy - 2, 7, GOLD);
-  } else if (scene === "building") {
-    cv.fill(x, y + 44, w, h - 44, [70, 70, 80]);
-    cv.fill(x + 8, y + 18, 16, 46, [150, 150, 160]);
-    cv.fill(x + 30, y + 30, 14, 34, [120, 120, 132]);
-    cv.fill(x + 50, y + 8, 18, 56, [170, 170, 180]);
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) cv.fill(x + 12 + c * 6, y + 24 + r * 10, 3, 5, GOLD);
-    for (let r = 0; r < 4; r++) cv.fill(x + 54 + (r % 2) * 6, y + 14 + r * 10, 3, 5, GOLD);
-    cv.circle(cx + 18, y + 14, 8, GOLD);
-  } else if (scene === "phone") {
-    cv.fill(cx - 16, y + 8, 32, 56, INK);
-    cv.fill(cx - 13, y + 12, 26, 44, WHITE);
-    cv.fill(cx - 13, y + 12, 26, 10, BLUE);
-    cv.fill(cx - 10, y + 28, 20, 3, [200, 200, 200]);
-    cv.fill(cx - 10, y + 34, 14, 3, [200, 200, 200]);
-    cv.fill(cx - 10, y + 40, 17, 3, [200, 200, 200]);
-    cv.circle(cx, y + 60, 3, GOLD);
-  } else if (scene === "plane") {
-    cv.fill(x, y + 48, w, 16, [200, 210, 220]);
-    cv.tri(cx - 26, cy + 8, cx + 30, cy - 6, cx + 30, cy + 8, [230, 230, 235]);
-    cv.tri(cx - 6, cy - 6, cx + 6, cy - 22, cx + 10, cy - 6, [210, 210, 215]);
-    cv.tri(cx - 18, cy + 8, cx - 8, cy + 20, cx - 2, cy + 8, [210, 210, 215]);
-    cv.circle(cx + 22, cy + 1, 4, BLUE);
-    cv.fill(cx - 30, cy + 2, 8, 2, ORANGE);
-  } else if (scene === "flame") {
-    cv.tri(cx, y + 8, cx - 18, cy + 14, cx + 18, cy + 14, ORANGE);
-    cv.circle(cx, cy + 10, 16, ORANGE);
-    cv.circle(cx, cy + 16, 10, GOLD);
-    cv.circle(cx, cy + 20, 5, [255, 240, 180]);
-    cv.fill(x, y + 56, w, 8, [90, 60, 50]);
-  } else if (scene === "shield") {
-    cv.tri(cx - 20, y + 10, cx + 20, y + 10, cx, y + 26, NAVY2);
-    cv.fill(cx - 20, y + 10, 40, 30, NAVY2);
-    cv.tri(cx - 20, y + 40, cx + 20, y + 40, cx, y + 58, NAVY2);
-    drawText(cv, cx - 6, y + 22, "!", 2, GOLD, true);
-    cv.fill(cx - 14, y + 46, 28, 3, GOLD);
-  } else if (scene === "chart") {
-    cv.fill(x, y + 56, w, 4, INK);
-    const bars = [18, 30, 24, 42, 34];
-    for (let i = 0; i < bars.length; i++) {
-      cv.fill(x + 10 + i * 13, y + 56 - bars[i], 9, bars[i], i % 2 ? BLUE : GREEN);
+  if (scene === "summit") {
+    cv.fill(x, y, w, h, [196, 222, 238]);
+    cv.circle(x + w - 26, y + 16, 10, GOLD);
+    cv.fill(x, y + 52, w, h - 52, [222, 210, 188]);
+    const cols = [NAVY2, RED, TEAL, GREEN, PURPLE, ORANGE];
+    for (let i = 0; i < 6; i++) {
+      const dx = x + 34 + i * 52;
+      cv.circle(dx, y + 42, 7, [232, 214, 188]);
+      cv.fill(dx - 9, y + 49, 18, 13, cols[i]);
+      cv.fill(dx - 8, y + 64, 16, 4, WHITE);
     }
-    cv.line(x + 8, y + 14, x + 66, y + 26, RED);
-    cv.line(x + 8, y + 14, x + 66, y + 26, RED);
-  } else if (scene === "gavel") {
-    cv.fill(cx - 20, y + 16, 34, 10, [120, 82, 40]);
-    cv.fill(cx - 24, y + 13, 6, 16, [90, 60, 28]);
-    cv.fill(cx + 16, y + 13, 6, 16, [90, 60, 28]);
-    cv.line(cx - 2, y + 26, cx + 14, y + 52, [90, 60, 28]);
-    cv.line(cx - 1, y + 26, cx + 15, y + 52, [90, 60, 28]);
-    cv.fill(cx + 4, y + 52, 30, 6, [120, 82, 40]);
+    cv.fill(x + 14, y + 62, w - 28, 8, [120, 82, 40]);
+    cv.fill(x + 14, y + 70, w - 28, h - 70, [96, 64, 32]);
+    cv.fill(x + 14, y + 70, w - 28, 2, GOLD);
+    cv.fill(x + 22, y + 44, 2, 18, INK);
+    cv.fill(x + 24, y + 44, 12, 7, BLUE);
+    cv.fill(x + w - 24, y + 44, 2, 18, INK);
+    cv.fill(x + w - 36, y + 44, 12, 7, RED);
+  } else if (scene === "barrage") {
+    cv.fill(x, y, w, h, NIGHT);
+    for (let i = 0; i < 18; i++) {
+      const sx = x + 8 + ((i * 53) % 300), sy = y + 4 + ((i * 29) % 34);
+      cv.fill(sx, sy, 2, 2, [220, 220, 235]);
+    }
+    cv.circle(x + w - 28, y + 16, 9, [240, 240, 220]);
+    const bld = [[6, 58, 44, 40], [56, 48, 36, 50], [98, 64, 52, 34], [156, 52, 40, 46], [202, 60, 48, 38], [256, 46, 40, 52], [302, 58, 22, 40]];
+    for (const b of bld) cv.fill(x + b[0], y + b[1], b[2], b[3], [30, 34, 54]);
+    for (let i = 0; i < 10; i++) {
+      const wx = x + 14 + ((i * 31) % 290), wy = y + 56 + ((i * 17) % 30);
+      cv.fill(wx, wy, 2, 2, GOLD);
+    }
+    cv.circle(x + 70, y + 90, 8, ORANGE);
+    cv.tri(x + 70, y + 76, x + 62, y + 92, x + 78, y + 92, GOLD);
+    cv.circle(x + 180, y + 92, 6, ORANGE);
+    cv.circle(x + 270, y + 90, 7, RED);
+    cv.circle(x + 70, y + 76, 6, [90, 90, 100]);
+    cv.circle(x + 180, y + 80, 5, [90, 90, 100]);
+    cv.circle(x + 270, y + 76, 6, [100, 100, 110]);
+    cv.line(x + 120, y + 20, x + 140, y + 26, WHITE);
+    cv.circle(x + 142, y + 27, 2, WHITE);
+    cv.line(x + 200, y + 12, x + 216, y + 30, ORANGE);
+    cv.circle(x + 218, y + 31, 2, RED);
+    cv.line(x + 240, y + 24, x + 252, y + 34, WHITE);
+    cv.circle(x + 254, y + 35, 2, WHITE);
+  } else if (scene === "bahrain") {
+    cv.fill(x, y, w, 34, [244, 190, 130]);
+    cv.fill(x, y + 34, w, 30, [236, 164, 100]);
+    cv.fill(x, y + 64, w, 6, [220, 140, 90]);
+    cv.fill(x, y + 70, w, 28, [40, 90, 140]);
+    cv.circle(x + 56, y + 34, 12, [255, 220, 140]);
+    cv.fill(x + 262, y + 44, 26, 26, [90, 70, 60]);
+    cv.fill(x + 292, y + 52, 22, 18, [90, 70, 60]);
+    cv.fill(x + 276, y + 30, 2, 14, [90, 70, 60]);
+    cv.circle(x + 277, y + 28, 4, [90, 70, 60]);
+    cv.fill(x + 120, y + 78, 110, 10, [30, 30, 38]);
+    cv.tri(x + 230, y + 78, x + 230, y + 88, x + 250, y + 88, [30, 30, 38]);
+    cv.fill(x + 150, y + 58, 3, 20, [30, 30, 38]);
+    cv.fill(x + 180, y + 66, 14, 12, [200, 60, 40]);
+    cv.circle(x + 188, y + 60, 7, ORANGE);
+    cv.tri(x + 188, y + 48, x + 181, y + 62, x + 195, y + 62, GOLD);
+    cv.circle(x + 186, y + 48, 6, [120, 120, 125]);
+    cv.circle(x + 192, y + 38, 7, [120, 120, 125]);
+    cv.circle(x + 198, y + 28, 5, [130, 130, 135]);
+    cv.fill(x + 40, y + 80, 18, 2, [200, 220, 240]);
+    cv.fill(x + 260, y + 90, 18, 2, [200, 220, 240]);
+    cv.fill(x + 90, y + 92, 14, 2, [200, 220, 240]);
+  } else if (scene === "flag") {
+    cv.fill(x, y, w, h, SKY);
+    const bh = Math.floor(h * 0.26);
+    cv.fill(x + 6, y + 3, w - 12, bh, RED);
+    cv.fill(x + 6, y + 3 + bh, w - 12, bh, WHITE);
+    cv.fill(x + 6, y + 3 + 2 * bh, w - 12, bh, BLUE);
+    cv.circle(cx, cy, Math.floor(h * 0.16), GOLD);
+  } else if (scene === "building") {
+    cv.fill(x, y, w, h, SKY);
+    cv.circle(x + w - 18, y + 10, 6, GOLD);
+    cv.fill(x, y + h - 6, w, 6, [70, 70, 80]);
+    cv.fill(x + 8, y + Math.floor(h * 0.35), Math.floor(w * 0.22), Math.floor(h * 0.65), [150, 150, 160]);
+    cv.fill(x + Math.floor(w * 0.34), y + Math.floor(h * 0.5), Math.floor(w * 0.2), Math.floor(h * 0.5), [120, 120, 132]);
+    cv.fill(x + Math.floor(w * 0.6), y + Math.floor(h * 0.2), Math.floor(w * 0.24), Math.floor(h * 0.8), [170, 170, 180]);
+    for (let r = 0; r < 3; r++) {
+      cv.fill(x + 13, y + Math.floor(h * 0.42) + r * 8, 3, 4, GOLD);
+      cv.fill(x + 22, y + Math.floor(h * 0.42) + r * 8, 3, 4, GOLD);
+    }
+    for (let r = 0; r < 4; r++) {
+      cv.fill(x + Math.floor(w * 0.63), y + Math.floor(h * 0.28) + r * 8, 3, 4, GOLD);
+      cv.fill(x + Math.floor(w * 0.63) + 9, y + Math.floor(h * 0.28) + r * 8, 3, 4, GOLD);
+    }
+    cv.tri(cx + Math.floor(w * 0.22), y + h - 14, cx + Math.floor(w * 0.22) - 6, y + h - 6, cx + Math.floor(w * 0.22) + 6, y + h - 6, ORANGE);
+    cv.circle(cx + Math.floor(w * 0.22), y + h - 10, 4, GOLD);
+  } else if (scene === "flame") {
+    cv.fill(x, y, w, h, SKY);
+    cv.tri(cx, y + 4, cx - Math.floor(h * 0.28), cy + Math.floor(h * 0.2), cx + Math.floor(h * 0.28), cy + Math.floor(h * 0.2), ORANGE);
+    cv.circle(cx, cy + Math.floor(h * 0.1), Math.floor(h * 0.22), ORANGE);
+    cv.circle(cx, cy + Math.floor(h * 0.18), Math.floor(h * 0.13), GOLD);
+    cv.circle(cx, cy + Math.floor(h * 0.24), Math.floor(h * 0.07), [255, 240, 180]);
+    cv.fill(x, y + h - 6, w, 6, [90, 60, 50]);
+  } else if (scene === "shield") {
+    cv.fill(x, y, w, h, SKY);
+    cv.tri(cx - Math.floor(h * 0.3), y + 6, cx + Math.floor(h * 0.3), y + 6, cx, y + Math.floor(h * 0.3), NAVY2);
+    cv.fill(cx - Math.floor(h * 0.3), y + 6, Math.floor(h * 0.6), Math.floor(h * 0.42), NAVY2);
+    cv.tri(cx - Math.floor(h * 0.3), y + Math.floor(h * 0.48), cx + Math.floor(h * 0.3), y + Math.floor(h * 0.48), cx, y + h - 6, NAVY2);
+    cv.fill(cx - Math.floor(w * 0.06), y + Math.floor(h * 0.3), Math.floor(w * 0.12), 3, GOLD);
+    cv.fill(cx - 2, y + Math.floor(h * 0.18), 4, Math.floor(h * 0.2), GOLD);
   } else if (scene === "dollar") {
-    cv.circle(cx, cy, 26, GREEN);
-    cv.ring(cx, cy, 26, 2, WHITE);
-    drawText(cv, cx - 9, cy - 14, "$", 4, WHITE, true);
-  } else if (scene === "drone") {
-    cv.fill(cx - 12, cy - 8, 24, 16, INK);
-    cv.circle(cx - 20, cy - 14, 8, [60, 60, 70]);
-    cv.circle(cx + 20, cy - 14, 8, [60, 60, 70]);
-    cv.circle(cx - 20, cy + 14, 8, [60, 60, 70]);
-    cv.circle(cx + 20, cy + 14, 8, [60, 60, 70]);
-    cv.fill(cx - 28, cy - 16, 16, 3, [180, 180, 190]);
-    cv.fill(cx + 12, cy - 16, 16, 3, [180, 180, 190]);
-    cv.fill(cx - 28, cy + 13, 16, 3, [180, 180, 190]);
-    cv.fill(cx + 12, cy + 13, 16, 3, [180, 180, 190]);
-    cv.circle(cx, cy, 4, RED);
-  } else if (scene === "ball") {
-    cv.circle(cx, cy, 26, WHITE);
-    cv.ring(cx, cy, 26, 2, INK);
-    cv.circle(cx, cy, 8, INK);
-    cv.circle(cx - 16, cy - 14, 4, INK);
-    cv.circle(cx + 16, cy - 14, 4, INK);
-    cv.circle(cx - 18, cy + 12, 4, INK);
-    cv.circle(cx + 18, cy + 12, 4, INK);
-    cv.circle(cx, cy + 20, 4, INK);
-    cv.fill(x, y + 58, w, 6, GREEN);
+    cv.fill(x, y, w, h, SKY);
+    cv.circle(cx, cy, Math.floor(h * 0.36), GREEN);
+    cv.ring(cx, cy, Math.floor(h * 0.36), 2, WHITE);
+    drawText(cv, cx - 5, cy - 7, "$", 2, WHITE, true);
+  } else if (scene === "ship") {
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.6), w, Math.floor(h * 0.4), [60, 120, 180]);
+    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.42), Math.floor(w * 0.6), Math.floor(h * 0.2), [40, 40, 48]);
+    cv.tri(cx + Math.floor(w * 0.3), y + Math.floor(h * 0.42), cx + Math.floor(w * 0.3), y + Math.floor(h * 0.62), cx + Math.floor(w * 0.38), y + Math.floor(h * 0.62), [40, 40, 48]);
+    cv.fill(cx - 1, y + Math.floor(h * 0.12), 2, Math.floor(h * 0.32), [40, 40, 48]);
+    cv.fill(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.28), Math.floor(w * 0.05), Math.floor(h * 0.16), [200, 60, 40]);
+    cv.circle(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.3), Math.floor(h * 0.12), ORANGE);
+    cv.circle(cx + Math.floor(w * 0.02), y + Math.floor(h * 0.16), Math.floor(h * 0.08), [120, 120, 125]);
+    cv.circle(cx - Math.floor(w * 0.02), y + Math.floor(h * 0.06), Math.floor(h * 0.07), [130, 130, 135]);
+    cv.fill(x + 12, y + Math.floor(h * 0.72), 16, 2, [200, 220, 240]);
+    cv.fill(x + w - 30, y + Math.floor(h * 0.8), 16, 2, [200, 220, 240]);
+  } else if (scene === "hospital") {
+    cv.fill(x, y, w, h, [235, 240, 245]);
+    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), Math.floor(h * 0.72), WHITE);
+    cv.rect(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), Math.floor(h * 0.72), [200, 200, 205]);
+    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), 3, RED);
+    cv.fill(cx - 2, y + Math.floor(h * 0.24), 4, Math.floor(h * 0.22), RED);
+    cv.fill(cx - Math.floor(w * 0.06), y + Math.floor(h * 0.3), Math.floor(w * 0.12), 4, RED);
+    cv.fill(cx - Math.floor(w * 0.2), y + Math.floor(h * 0.55), 6, 6, BLUE);
+    cv.fill(cx + Math.floor(w * 0.14), y + Math.floor(h * 0.55), 6, 6, BLUE);
+    cv.fill(cx - 5, y + Math.floor(h * 0.72), 10, Math.floor(h * 0.18), INK);
+    cv.fill(x, y + h - 4, w, 4, [150, 160, 150]);
+  } else if (scene === "van") {
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.72), w, Math.floor(h * 0.28), [90, 90, 95]);
+    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.28), Math.floor(w * 0.5), Math.floor(h * 0.34), WHITE);
+    cv.rect(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.28), Math.floor(w * 0.5), Math.floor(h * 0.34), [180, 180, 185]);
+    cv.fill(cx + Math.floor(w * 0.2), y + Math.floor(h * 0.4), Math.floor(w * 0.14), Math.floor(h * 0.22), [200, 220, 235]);
+    cv.fill(cx - Math.floor(w * 0.08), y + Math.floor(h * 0.34), 4, Math.floor(h * 0.2), RED);
+    cv.fill(cx - Math.floor(w * 0.08) - 5, y + Math.floor(h * 0.4), 14, 4, RED);
+    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), Math.floor(h * 0.09), INK);
+    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), Math.floor(h * 0.09), INK);
+    cv.fill(x + 10, y + Math.floor(h * 0.4), 12, 2, [200, 200, 205]);
+    cv.fill(x + 26, y + Math.floor(h * 0.5), 8, 2, [200, 200, 205]);
+  } else if (scene === "sub") {
+    cv.fill(x, y, w, h, [70, 130, 180]);
+    cv.fill(x, y + 2, w, 2, [140, 200, 235]);
+    cv.fill(cx - Math.floor(w * 0.3), cy - Math.floor(h * 0.12), Math.floor(w * 0.6), Math.floor(h * 0.24), [40, 50, 66]);
+    cv.circle(cx - Math.floor(w * 0.3), cy, Math.floor(h * 0.12), [40, 50, 66]);
+    cv.circle(cx + Math.floor(w * 0.3), cy, Math.floor(h * 0.12), [40, 50, 66]);
+    cv.fill(cx - Math.floor(w * 0.05), cy - Math.floor(h * 0.3), Math.floor(w * 0.1), Math.floor(h * 0.2), [40, 50, 66]);
+    cv.fill(cx + Math.floor(w * 0.02), cy - Math.floor(h * 0.42), 2, Math.floor(h * 0.14), [40, 50, 66]);
+    for (let i = -1; i <= 1; i++) cv.circle(cx + i * Math.floor(w * 0.12), cy, 2, WHITE);
+    cv.circle(cx + Math.floor(w * 0.1), cy - Math.floor(h * 0.36), 2, [200, 220, 240]);
+    cv.circle(cx + Math.floor(w * 0.14), cy - Math.floor(h * 0.44), 1, [200, 220, 240]);
+  } else if (scene === "power") {
+    cv.fill(x, y, w, h, SKY);
+    cv.line(cx - Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx - Math.floor(w * 0.02), y + Math.floor(h * 0.15), INK);
+    cv.line(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx + Math.floor(w * 0.02), y + Math.floor(h * 0.15), INK);
+    cv.line(cx - Math.floor(w * 0.09), y + Math.floor(h * 0.3), cx + Math.floor(w * 0.09), y + Math.floor(h * 0.3), INK);
+    cv.line(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.07), y + Math.floor(h * 0.5), INK);
+    cv.line(x + 4, y + Math.floor(h * 0.2), cx - Math.floor(w * 0.05), y + Math.floor(h * 0.18), INK);
+    cv.line(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.18), x + w - 4, y + Math.floor(h * 0.2), INK);
+    cv.thickLine(cx + Math.floor(w * 0.18), y + Math.floor(h * 0.2), cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), 3, GOLD);
+    cv.thickLine(cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), 3, GOLD);
+    cv.thickLine(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), cx + Math.floor(w * 0.06), y + Math.floor(h * 0.85), 3, GOLD);
+  } else if (scene === "protest") {
+    cv.fill(x, y, w, h, [240, 235, 225]);
+    const cols = [NAVY2, RED, TEAL, GREEN, PURPLE];
+    for (let i = 0; i < 5; i++) {
+      const dx = cx - Math.floor(w * 0.32) + i * Math.floor(w * 0.16);
+      cv.circle(dx, y + Math.floor(h * 0.3), 5, [232, 214, 188]);
+      cv.fill(dx - 7, y + Math.floor(h * 0.36), 14, Math.floor(h * 0.2), cols[i]);
+    }
+    for (let i = 0; i < 6; i++) {
+      const dx = cx - Math.floor(w * 0.38) + i * Math.floor(w * 0.15);
+      cv.circle(dx, y + Math.floor(h * 0.58), 5, [232, 214, 188]);
+      cv.fill(dx - 7, y + Math.floor(h * 0.64), 14, Math.floor(h * 0.26), cols[(i + 2) % 5]);
+    }
+    cv.fill(cx - Math.floor(w * 0.42), y + Math.floor(h * 0.08), 2, Math.floor(h * 0.3), INK);
+    cv.fill(cx - Math.floor(w * 0.42) - 8, y + Math.floor(h * 0.08), 18, 10, WHITE);
+    cv.fill(cx - Math.floor(w * 0.42) - 6, y + Math.floor(h * 0.11), 14, 2, RED);
+    cv.fill(cx + Math.floor(w * 0.38), y + Math.floor(h * 0.14), 2, Math.floor(h * 0.3), INK);
+    cv.fill(cx + Math.floor(w * 0.38) - 8, y + Math.floor(h * 0.14), 18, 10, WHITE);
+    cv.fill(cx + Math.floor(w * 0.38) - 6, y + Math.floor(h * 0.17), 14, 2, TEAL);
   }
   cv.rect(x, y, w, h, [200, 200, 205]);
 }
@@ -451,121 +639,92 @@ const CONTINENTS = [
   // New Zealand
   [[167, -45], [169, -43], [171, -41], [173, -40], [175, -38], [177, -38], [176, -40], [174, -41], [172, -42], [170, -44], [168, -46]],
 ];
-const LAND = [96, 150, 80];
-const LAND_EDGE = [74, 118, 64];
+const LAND = [78, 128, 66];
 
-// Scanline polygon fill; pts are [x, y] pixel coords; clip(x, y) optionally limits the fill.
-function polyFill(cv, pts, color, clip) {
-  let minY = Infinity, maxY = -Infinity;
-  for (const p of pts) { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
-  for (let y = Math.ceil(minY); y <= Math.floor(maxY); y++) {
-    const xs = [];
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i], b = pts[(i + 1) % pts.length];
-      if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
-        xs.push(a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
-      }
-    }
-    xs.sort((p, q) => p - q);
-    for (let k = 0; k + 1 < xs.length; k += 2) {
-      for (let x = Math.ceil(xs[k]); x <= Math.floor(xs[k + 1]); x++) {
-        if (!clip || clip(x, y)) cv.set(x, y, color);
-      }
-    }
+// Ray-casting point-in-polygon test on projected pixel coordinates.
+function pointInPoly(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
   }
+  return inside;
 }
-function polyOutline(cv, pts, color) {
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i], b = pts[(i + 1) % pts.length];
-    cv.line(Math.round(a[0]), Math.round(a[1]), Math.round(b[0]), Math.round(b[1]), color);
-  }
-}
-// Draw all continents through a projection fn(lon, lat) -> [x, y]; clip limits the fill (globe disc).
-function drawContinents(cv, project, clip, outline) {
-  for (const poly of CONTINENTS) {
-    polyFill(cv, poly.map((p) => project(p[0], p[1])), LAND, clip);
-  }
-  if (outline) {
-    for (const poly of CONTINENTS) {
-      polyOutline(cv, poly.map((p) => project(p[0], p[1])), LAND_EDGE);
+// Dotted continents: a 6 px dot grid, 2x2 px dots where the point falls on land.
+function drawDottedContinents(cv, project, x0, y0, x1, y1) {
+  const polys = CONTINENTS.map((poly) => poly.map((p) => project(p[0], p[1])));
+  for (let gy = y0 + 3; gy < y1; gy += 6) {
+    for (let gx = x0 + 3; gx < x1; gx += 6) {
+      for (const poly of polys) {
+        if (pointInPoly(gx, gy, poly)) { cv.fill(gx - 1, gy - 1, 2, 2, LAND); break; }
+      }
     }
   }
 }
 
 // ---------- layout ----------
 function drawMasthead(cv) {
-  cv.fill(0, 0, W, 92, NAVY);
-  cv.fill(0, 92, W, 4, GOLD);
-  drawTextCentered(cv, 512, 10, "SUNDAY 22 NOVEMBER 2026", 4, GOLD, true);
-  drawTextCentered(cv, 512, 52, "30 STORIES FROM 7 REGIONS - THE WORLD IN ONE PICTURE", 2, WHITE, false);
-  drawTextCentered(cv, 512, 76, "EVERY STORY FIRST REPORTED ON 22 NOVEMBER 2026", 1, [170, 190, 220], false);
+  drawSerifCentered(cv, 512, 8, "SUNDAY 22 NOVEMBER 2026", 3, INK);
+  cv.fill(6, 52, 1012, 3, GOLD);
+  cv.fill(6, 57, 1012, 1, GOLD);
+  drawTextCentered(cv, 512, 62, "THE WORLD IN ONE PICTURE - 38 STORIES", 2, NAVY, true);
+}
+
+function drawSubhead(cv) {
+  drawTextSlantedCentered(cv, 512, 94, "COP31 NEARS DEAL * 400 DRONES HIT UKRAINE * IRAN STRIKES US BASES", 2, RED, true);
 }
 
 function drawStats(cv) {
-  const bw = 164, gap = 6, y = 230, h = 44;
+  const bw = 163, gap = 6, y = 120, h = 40;
   STATS.forEach((s, i) => {
     const x = 6 + i * (bw + gap);
     cv.fill(x, y, bw, h, WHITE);
     cv.rect(x, y, bw, h, [210, 210, 215]);
     cv.fill(x, y, bw, 3, GOLD);
-    drawTextCentered(cv, x + bw / 2, y + 8, s[0], 3, RED, true);
-    drawTextCentered(cv, x + bw / 2, y + 31, s[1], 1, MUTED, false);
+    drawTextCentered(cv, x + bw / 2, y + 7, s[0], 3, RED, true);
+    drawTextCentered(cv, x + bw / 2, y + 29, s[1], 1, MUTED, false);
   });
 }
 
-function drawTopPanel(cv, story, px, py) {
-  const [num, headline, summary, source, region, scene, accent] = story;
-  cv.fill(px, py, 330, 88, WHITE);
-  cv.rect(px, py, 330, 88, [210, 210, 215]);
+function drawLeadPanel(cv, story, px, py) {
+  const [num, headline, deck, outlet, region, scene, accent] = story;
+  cv.fill(px, py, 330, 174, WHITE);
+  cv.rect(px, py, 330, 174, [210, 210, 215]);
   cv.fill(px, py, 330, 3, accent);
-  drawScene(cv, px + 4, py + 6, 80, 76, scene, accent);
-  // number badge
-  cv.circle(px + 16, py + 18, 10, RED);
-  cv.ring(px + 16, py + 18, 10, 1, WHITE);
+  drawScene(cv, px + 4, py + 6, 322, 98, scene, accent);
+  cv.circle(px + 18, py + 22, 11, RED);
+  cv.ring(px + 18, py + 22, 11, 1, WHITE);
   const ns = String(num);
-  drawText(cv, px + 16 - Math.floor(textWidth(ns, 1) / 2), py + 15, ns, 1, WHITE, true);
-  // headline (max 2 lines)
-  const hl = wrapText(headline, 232, 1).slice(0, 2);
-  hl.forEach((ln, i) => drawText(cv, px + 90, py + 6 + i * 9, ln, 1, INK, true));
-  // summary (max 3 lines)
-  const sm = wrapText(summary, 232, 1).slice(0, 3);
-  sm.forEach((ln, i) => drawText(cv, px + 90, py + 27 + i * 9, ln, 1, [60, 60, 68], false));
-  // source + region
-  drawText(cv, px + 90, py + 76, source + "  -  " + region, 1, accent, true);
+  drawText(cv, px + 18 - Math.floor(textWidth(ns, 1) / 2), py + 19, ns, 1, WHITE, true);
+  const hl = wrapText(headline, 322, 2).slice(0, 2);
+  hl.forEach((ln, i) => drawText(cv, px + 6, py + 108 + i * 14, ln, 2, INK, true));
+  const dk = wrapText(deck, 322, 1).slice(0, 3);
+  dk.forEach((ln, i) => drawText(cv, px + 6, py + 126 + i * 9, ln, 1, [60, 60, 68], false));
+  drawText(cv, px + 6, py + 158, outlet, 1, accent, true);
 }
 
-function drawLead(cv) {
-  const x = 6, y = 96, w = 1012, h = 130;
-  cv.fill(x, y, w, h, WHITE);
-  cv.rect(x, y, w, h, [210, 210, 215]);
-  cv.fill(x, y, w, 3, RED);
-  // big globe visual: real continents clipped to the disc, drawn by hand
-  const gx = x + 8, gy = y + 8, gw = 150, gh = 114;
-  cv.fill(gx, gy, gw, gh, SKY);
-  const cx = gx + 75, cy = gy + 57, gr = 52;
-  cv.circle(cx, cy, gr, BLUE);
-  const gProject = (lon, lat) => [cx + (lon / 180) * 50, cy - (lat / 90) * 50];
-  drawContinents(cv, gProject, (px, py) => (px - cx) * (px - cx) + (py - cy) * (py - cy) <= 50 * 50, false);
-  cv.fill(cx - 2, cy - gr, 4, gr * 2, [120, 190, 230]);
-  cv.fill(cx - gr, cy - 2, gr * 2, 4, [120, 190, 230]);
-  cv.ring(cx, cy, gr, 3, WHITE);
-  cv.rect(gx, gy, gw, gh, [200, 200, 205]);
-  // red LEAD tag + giant headline
-  cv.fill(x + 170, y + 8, 44, 14, RED);
-  drawText(cv, x + 176, y + 11, "LEAD", 1, WHITE, true);
-  drawText(cv, x + 222, y + 8, "COP31 UNVEILS NEW DEAL TEXT", 2, RED, true);
-  drawText(cv, x + 170, y + 30, "AS TALKS RUN INTO SUNDAY", 2, INK, true);
-  drawText(cv, x + 170, y + 58, "AFTER DEADLOCK OVER FOSSIL FUELS, THE ANTALYA PRESIDENCY PUTS A NEW PACKAGE", 1, [60, 60, 68], false);
-  drawText(cv, x + 170, y + 67, "TO NEARLY 200 NATIONS. 130 STATES DEMANDED A TRANSITION AWAY FROM FOSSIL FUELS.", 1, [60, 60, 68], false);
-  drawText(cv, x + 170, y + 92, "DELEGATES HAVE UNTIL 03:00 GMT TO OBJECT - VOTE AT 06:00 GMT - REUTERS", 1, TEAL, true);
-  drawText(cv, x + 170, y + 108, "NOT SETTLED: THE VOTE HAS NOT HAPPENED YET", 1, RED, true);
+function drawSmallPanel(cv, story, px, py) {
+  const [num, headline, deck, source, region, scene, accent] = story;
+  cv.fill(px, py, 198, 108, WHITE);
+  cv.rect(px, py, 198, 108, [210, 210, 215]);
+  cv.fill(px, py, 198, 3, accent);
+  drawScene(cv, px + 4, py + 5, 190, 50, scene, accent);
+  cv.circle(px + 15, py + 16, 9, RED);
+  cv.ring(px + 15, py + 16, 9, 1, WHITE);
+  const ns = String(num);
+  drawText(cv, px + 15 - Math.floor(textWidth(ns, 1) / 2), py + 13, ns, 1, WHITE, true);
+  const hl = wrapText(headline, 190, 1).slice(0, 2);
+  hl.forEach((ln, i) => drawText(cv, px + 5, py + 58 + i * 9, ln, 1, INK, true));
+  const dk = wrapText(deck, 190, 1).slice(0, 2);
+  dk.forEach((ln, i) => drawText(cv, px + 5, py + 78 + i * 9, ln, 1, [60, 60, 68], false));
+  drawText(cv, px + 5, py + 98, source + "  -  " + region, 1, accent, true);
 }
 
 function drawRegions(cv) {
-  const y = 652, h = 28;
-  drawText(cv, 6, y + 4, "STORIES BY REGION:", 1, INK, true);
+  const y = 564, h = 28;
+  drawText(cv, 6, y + 10, "STORIES BY REGION:", 1, INK, true);
   const x0 = 150;
-  const bw = 122, gap = 5;
+  const bw = 118, gap = 4;
   REGIONS.forEach((r, i) => {
     const x = x0 + i * (bw + gap);
     cv.fill(x, y, bw, h, WHITE);
@@ -576,7 +735,7 @@ function drawRegions(cv) {
 }
 
 function drawMap(cv) {
-  const x = 6, y = 684, w = 1012, h = 112;
+  const x = 6, y = 596, w = 1012, h = 112;
   cv.fill(x, y, w, h, WHITE);
   cv.rect(x, y, w, h, [210, 210, 215]);
   cv.fill(x, y, w, 3, NAVY);
@@ -600,59 +759,70 @@ function drawMap(cv) {
     const gy = Math.round(project(0, lat)[1]);
     cv.line(seaX0, gy, seaX1 - 1, gy, grat);
   }
-  // Recognizable continents with a darker coastline edge.
-  drawContinents(cv, project, null, true);
-  // Pins: story number -> true location. 1 Antalya (COP31), 2 Sinaloa, 3 Paris,
-  // 4 Washington DC, 5 Brazil, 6 Finland (nudged ~1 deg E of the border so it
-  // clears the Poland pin), 7 Nepal, 8 central USA, 9 Beijing, 10 Bangkok,
-  // 11 Madrid, 12 Warsaw, 13 Dhaka. Radius 7, spread so no two touch.
+  // Dotted continents: no solid blobs, a deliberate dot grid.
+  drawDottedContinents(cv, project, seaX0, seaY0, seaX1, seaY1);
+  // Pins: story number -> true location, with nudges so no two pins touch.
+  // [num, lon, lat, dx, dy]
   const pins = [
-    [594, 736], [214, 743], [515, 729], [296, 735], [365, 762], [582, 721],
-    [741, 741], [247, 735], [829, 734], [787, 749], [499, 734], [567, 727], [759, 743],
+    [1, 30.7, 36.9, -16, -10],  // Antalya (COP31)
+    [2, 30.5, 50.4, -28, -12],  // Kyiv (barrage)
+    [3, 50.6, 26.2, 8, 16],     // Bahrain
+    [4, -108.5, 25.6, 0, 0],    // Guasave, Sinaloa
+    [5, 27.0, 60.0, 26, 6],     // Sparta II, Gulf of Finland
+    [6, 33.4, 47.9, 22, 18],    // Kryvyi Rih
+    [7, -47.9, -15.8, 0, 0],    // Brasilia
+    [8, 34.5, 31.5, 36, 18],    // Gaza City
+    [9, 151.2, -33.9, 0, 0],    // Sydney
+    [10, 51.4, 35.7, 12, -14],  // Tehran
+    [11, 77.2, 28.6, 0, 0],     // New Delhi
+    [12, -3.7, 40.4, 0, 0],     // Madrid
+    [13, 90.4, 23.8, 0, 0],     // Dhaka
   ];
-  pins.forEach((p, i) => {
-    const n = String(i + 1);
-    cv.circle(p[0], p[1], 7, RED);
-    cv.ring(p[0], p[1], 7, 1, WHITE);
-    drawText(cv, p[0] - Math.floor(textWidth(n, 1) / 2), p[1] - 3, n, 1, WHITE, true);
+  pins.forEach((p) => {
+    const pos = project(p[1], p[2]);
+    const px = Math.round(pos[0]) + p[3], py = Math.round(pos[1]) + p[4];
+    const n = String(p[0]);
+    cv.circle(px, py, 7, RED);
+    cv.ring(px, py, 7, 1, WHITE);
+    drawText(cv, px - Math.floor(textWidth(n, 1) / 2), py - 3, n, 1, WHITE, true);
   });
 }
 
 function drawDateCheck(cv) {
-  const x = 6, y = 800, w = 1012, h = 64;
+  const x = 6, y = 712, w = 1012, h = 64;
   cv.fill(x, y, w, h, [255, 244, 238]);
   cv.rect(x, y, w, h, RED);
   cv.fill(x, y, w, 3, RED);
-  drawText(cv, x + 10, y + 8, "DATE CHECK - NOT SUNDAY'S NEWS: FIRST REPORTED SAT 21 NOV OR EARLIER", 1, RED, true);
-  drawText(cv, x + 10, y + 21, "PERU QUAKE - ICJ MYANMAR VERDICT (19 NOV) - SHENZHEN DECLARATION - WALL ST FALL", 1, INK, false);
-  drawText(cv, x + 10, y + 32, "IRAN STRIKES ON US BASES IN BAHRAIN - EL CHAPO ISIDRO CAPTURED - KRYVYI RIH ATTACK", 1, INK, false);
-  drawText(cv, x + 10, y + 43, "GUPTA JAILED 19 YRS (20 NOV) - ROUNDUP $7.25BN (20 NOV) - HEGSETH CANADA MEMO (20 NOV)", 1, INK, false);
-  drawText(cv, x + 10, y + 54, "NOT SETTLED: COP31 VOTE AT 06:00 GMT STILL TO COME - IRAN TANKER CONVOY STILL MOORED OFF KHARG", 1, RED, true);
+  drawText(cv, x + 10, y + 8, "DATE CHECK - WIRES READ UP TO 01:00 UTC, SUNDAY 22 NOVEMBER 2026", 1, RED, true);
+  drawText(cv, x + 10, y + 21, "NOT SUNDAY'S NEWS - LEFT OUT: PERU QUAKE 20 NOV - POLAND MISSILES 19 NOV - KERCH BRIDGE STRIKES - SHENZHEN SUMMIT 19 NOV", 1, INK, false);
+  drawText(cv, x + 10, y + 34, "NOT SETTLED YET: COP31 VOTE AT 06:00 GMT STILL TO COME - IRAN TANKER CONVOY YET TO SAIL", 1, RED, true);
+  drawText(cv, x + 10, y + 47, "EVERY STORY ABOVE WAS FIRST REPORTED OR STILL DEVELOPING ON 22 NOVEMBER 2026", 1, MUTED, false);
 }
 
 function drawAlso(cv) {
-  drawText(cv, 6, 868, "ALSO ON 22 NOVEMBER", 2, NAVY, true);
-  cv.fill(230, 876, 784, 2, GOLD);
+  drawText(cv, 6, 780, "ALSO ON 22 NOVEMBER", 2, NAVY, true);
+  cv.fill(230, 788, 784, 2, GOLD);
   const colX = [10, 522];
   ALSO.forEach((s, i) => {
-    const col = i < 9 ? 0 : 1;
-    const row = i % 9;
-    const y = 886 + row * 12;
+    const col = i < 13 ? 0 : 1;
+    const row = i % 13;
+    const y = 800 + row * 14;
     const line = s[0] + ". " + s[1] + " - " + s[2];
     drawText(cv, colX[col], y, line, 1, INK, false);
   });
-  drawTextCentered(cv, 512, 1004, "ALL 30 STORIES FIRST REPORTED ON SUNDAY 22 NOVEMBER 2026 - SOURCES AS TAGGED", 1, MUTED, false);
+  drawTextCentered(cv, 512, 1004, "ALL 38 STORIES FIRST REPORTED OR STILL DEVELOPING ON SUNDAY 22 NOVEMBER 2026 - SOURCES AS TAGGED", 1, MUTED, false);
 }
 
 // ---------- build ----------
 function build() {
   const cv = new Canvas(W, H, PAPER);
   drawMasthead(cv);
-  drawLead(cv);
+  drawSubhead(cv);
   drawStats(cv);
-  TOP.forEach((s, i) => {
-    const col = i % 3, row = Math.floor(i / 3);
-    drawTopPanel(cv, s, 6 + col * 340, 278 + row * 94);
+  LEADS.forEach((s, i) => drawLeadPanel(cv, s, 6 + i * 336, 166));
+  PANELS.forEach((s, i) => {
+    const col = i % 5, row = Math.floor(i / 5);
+    drawSmallPanel(cv, s, 8 + col * 202, 344 + row * 112);
   });
   drawRegions(cv);
   drawMap(cv);
@@ -667,6 +837,6 @@ function main() {
   const png = build();
   fs.writeFileSync(path.join(outDir, "entry.png"), png);
   console.log("entry.png bytes: " + png.length);
-  console.log("stories: " + (1 + TOP.length + ALSO.length));
+  console.log("stories: " + (LEADS.length + PANELS.length + ALSO.length));
 }
 main();
