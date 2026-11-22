@@ -25,6 +25,12 @@
 // theft 29 Oct). The Las Vegas GP, the COP31 vote, the ATP final and
 // Liverpool v Man Utd had not happened by the 03:30 UTC cutoff, so they
 // are listed as STILL TO COME, never as results.
+//
+// ROUND 4 IMPROVEMENT PASS (22 Nov, same 38 stories / cutoff / layout):
+// redrawn handshake scene (story 8, EU-Indonesia: clasped hands with
+// cuffs plus EU and Indonesian flags, clear of badge and chip), enlarged
+// red cross on the aid van (story 11), and the Hong Kong ballot paper +
+// tick moved left so the "723 SEATS" chip no longer hides them.
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -663,24 +669,49 @@ function drawScene(cv, x, y, w, h, scene, accent) {
     cv.fill(cx - Math.floor(w * 0.26), y + Math.floor(h * 0.34), Math.floor(w * 0.52), 3, RED);
     cv.fill(cx - Math.floor(w * 0.1), y + Math.floor(h * 0.34), Math.floor(w * 0.2), 2, INK);
     drawText(cv, cx - 8, y + Math.floor(h * 0.56), "VOTE", 1, RED, true);
-    // Ballot paper dropping in, with a red tick.
-    cv.fill(cx + Math.floor(w * 0.08), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), WHITE);
-    cv.rect(cx + Math.floor(w * 0.08), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), [180, 180, 188]);
-    cv.thickLine(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.3), cx + Math.floor(w * 0.16), y + Math.floor(h * 0.36), 2, RED);
-    cv.thickLine(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.36), cx + Math.floor(w * 0.22), y + Math.floor(h * 0.18), 2, RED);
-    for (let i = 0; i < 5; i++) cv.fill(x + 8 + i * 8, y + 4, 3, 3, GOLD);
+    // Ballot paper dropping into the slot, with a large red tick. Moved
+    // left of centre: the old position sat under the "723 SEATS" chip, so
+    // the paper and tick were hidden. Now clear of both the number badge
+    // (top-left) and the chip (top-right), with the paper over the slot.
+    cv.fill(cx - Math.floor(w * 0.22), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), WHITE);
+    cv.rect(cx - Math.floor(w * 0.22), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), [180, 180, 188]);
+    cv.thickLine(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.28), cx - Math.floor(w * 0.14), y + Math.floor(h * 0.36), 3, RED);
+    cv.thickLine(cx - Math.floor(w * 0.14), y + Math.floor(h * 0.36), cx - Math.floor(w * 0.06), y + Math.floor(h * 0.14), 3, RED);
+    for (let i = 0; i < 5; i++) cv.fill(x + 24 + i * 6, y + 4, 3, 3, GOLD);
   } else if (scene === "handshake") {
+    // EU-Indonesia deal: two sleeves meeting in a clasped handshake, with
+    // the EU flag bottom-left and the Indonesian flag bottom-right. The
+    // sleeves, cuffs and hands sit in the middle band, clear of the number
+    // badge (top-left) and the stat chip (top-right), so nothing is hidden.
     cv.vgrad(x, y, w, h, SKY, [226, 236, 242]);
-    // Two sleeves meeting in a handshake.
-    cv.thickLine(cx - Math.floor(w * 0.42), y + Math.floor(h * 0.2), cx - Math.floor(w * 0.06), cy, 10, BLUE);
-    cv.thickLine(cx + Math.floor(w * 0.42), y + Math.floor(h * 0.2), cx + Math.floor(w * 0.06), cy, 10, RED);
-    cv.circle(cx, cy, Math.floor(h * 0.2), CREAM);
-    cv.fill(cx - 4, cy - 2, 8, 4, [210, 180, 150]);
     cv.fill(x, y + h - 5, w, 5, [120, 130, 110]);
-    // EU stars and the Indonesian red-white flag as small emblems.
-    for (let i = 0; i < 5; i++) cv.fill(x + 8 + i * 7, y + 5, 2, 2, GOLD);
-    cv.fill(x + w - 26, y + 4, 18, 5, RED);
-    cv.fill(x + w - 26, y + 9, 18, 5, WHITE);
+    // Sleeves: blue (EU) from the left, red from the right, meeting centre.
+    cv.thickLine(x + 4, y + 26, cx - 14, y + 29, 12, BLUE);
+    cv.thickLine(cx + 14, y + 29, x + w - 4, y + 26, 12, RED);
+    // White shirt cuffs at each wrist.
+    cv.fill(cx - 16, y + 22, 8, 15, WHITE);
+    cv.rect(cx - 16, y + 22, 8, 15, [180, 180, 185]);
+    cv.fill(cx + 8, y + 22, 8, 15, WHITE);
+    cv.rect(cx + 8, y + 22, 8, 15, [180, 180, 185]);
+    // Clasped hands: one large cream disc with finger grooves and a thumb.
+    cv.circle(cx, y + 30, 11, CREAM);
+    cv.ring(cx, y + 30, 11, 1, [190, 160, 130]);
+    cv.line(cx - 8, y + 28, cx + 8, y + 28, [190, 160, 130]);
+    cv.line(cx - 8, y + 32, cx + 8, y + 32, [190, 160, 130]);
+    cv.line(cx - 8, y + 36, cx + 8, y + 36, [190, 160, 130]);
+    cv.ellipse(cx - 2, y + 24, 5, 3, [222, 192, 162]);
+    // EU flag (blue with gold stars) bottom-left.
+    cv.fill(x + 8, y + h - 14, 22, 10, BLUE);
+    cv.rect(x + 8, y + h - 14, 22, 10, [180, 180, 185]);
+    cv.fill(x + 12, y + h - 11, 2, 2, GOLD);
+    cv.fill(x + 18, y + h - 11, 2, 2, GOLD);
+    cv.fill(x + 24, y + h - 11, 2, 2, GOLD);
+    cv.fill(x + 15, y + h - 7, 2, 2, GOLD);
+    cv.fill(x + 21, y + h - 7, 2, 2, GOLD);
+    // Indonesian flag (red over white) bottom-right.
+    cv.fill(x + w - 30, y + h - 14, 22, 5, RED);
+    cv.fill(x + w - 30, y + h - 9, 22, 5, WHITE);
+    cv.rect(x + w - 30, y + h - 14, 22, 10, [180, 180, 185]);
   } else if (scene === "racecar") {
     // Las Vegas night: neon sky, Strip towers, track, race car, flag.
     cv.vgrad(x, y, w, h, [24, 16, 52], [90, 40, 90]);
@@ -719,15 +750,26 @@ function drawScene(cv, x, y, w, h, scene, accent) {
     cv.fill(cx - 5, y + Math.floor(h * 0.72), 10, Math.floor(h * 0.18), INK);
     cv.fill(x, y + h - 4, w, 4, [150, 160, 150]);
   } else if (scene === "van") {
+    // Aid van: the red cross is now large and centred on the van side —
+    // a 10 px wide vertical bar and a 26 px wide arm, deliberately
+    // overlapping the body edges so it reads at 1024 px — while the van
+    // body, cab window and wheels stay readable. Cross sits clear of the
+    // number badge (top-left) and the stat chip (top-right).
     cv.vgrad(x, y, w, h, SKY, [226, 232, 238]);
     cv.fill(x, y + Math.floor(h * 0.7), w, Math.floor(h * 0.3), [90, 90, 95]);
     cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.26), Math.floor(w * 0.5), Math.floor(h * 0.36), WHITE);
     cv.rect(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.26), Math.floor(w * 0.5), Math.floor(h * 0.36), [180, 180, 185]);
-    cv.fill(cx + Math.floor(w * 0.2), y + Math.floor(h * 0.38), Math.floor(w * 0.14), Math.floor(h * 0.24), [200, 220, 235]);
-    cv.fill(cx - Math.floor(w * 0.08), y + Math.floor(h * 0.32), 4, Math.floor(h * 0.2), RED);
-    cv.fill(cx - Math.floor(w * 0.08) - 5, y + Math.floor(h * 0.38), 14, 4, RED);
-    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), Math.floor(h * 0.1), INK);
-    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), Math.floor(h * 0.1), INK);
+    // Cab window, fully inside the body, stronger blue so it reads.
+    cv.fill(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.3), Math.floor(w * 0.1), Math.floor(h * 0.2), [120, 170, 210]);
+    cv.rect(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.3), Math.floor(w * 0.1), Math.floor(h * 0.2), INK);
+    // Red cross, large and centred on the van side.
+    cv.fill(cx - 5, y + Math.floor(h * 0.16), 10, Math.floor(h * 0.52), RED);
+    cv.fill(cx - 13, y + Math.floor(h * 0.3), 26, 10, RED);
+    // Wheels, larger with light hubs; road dashes.
+    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), Math.floor(h * 0.12), INK);
+    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), Math.floor(h * 0.12), INK);
+    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), 2, [180, 180, 190]);
+    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), 2, [180, 180, 190]);
     cv.fill(x + 10, y + Math.floor(h * 0.38), 12, 2, [200, 200, 205]);
     cv.fill(x + 26, y + Math.floor(h * 0.48), 8, 2, [200, 200, 205]);
   } else if (scene === "power") {
