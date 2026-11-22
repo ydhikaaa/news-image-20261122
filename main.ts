@@ -253,70 +253,60 @@ function wrapText(s, maxW, scale) {
 }
 
 // ---------- story data: every story first reported on Sunday 22 Nov 2026 ----------
-// TOP 13 get a drawn visual panel; the rest appear in the numbered ALSO list.
+// Story 1 is the giant lead. TOP 2-13 get a drawn visual panel; the rest appear
+// in the numbered ALSO list. Items first reported 21 Nov or earlier are NOT
+// listed as news: they appear only in the DATE CHECK box below.
 // [num, headline, summary, source, region, scene, accent]
 const TOP = [
-  [1, "COP31 NEARS FINAL DEAL AFTER ALL-NIGHT TALKS", "Presidents unveil a new package in Antalya; delegates have until 03:00 GMT to object, vote at 06:00.", "REUTERS", "EUROPE", "globe", TEAL],
-  [2, "ISRAEL SAYS HAMAS TIGHTENING GRIP ON GAZA", "Israel alleges the militant group is intensifying its hold on the Strip as the ceasefire frays.", "WIRE", "MIDDLE EAST", "flag", RED],
-  [3, "129 BODIES PULLED FROM GAZA RUBBLE", "Rescue teams recover 129 people from debris in downtown Gaza as the toll of the war keeps rising.", "WIRE", "MIDDLE EAST", "building", ORANGE],
-  [4, "TRUMP POSTS HIS OWN 'TRUMPCARE' PLAN", "The president shares a Democratic senator-elect's health plan on Truth Social, backing a deal with Democrats.", "WIRE", "N. AMERICA", "phone", BLUE],
-  [5, "IRAN CLAIMS MISSILE HIT US F-16 OVER HORMUZ", "Tehran says its missile struck the jet, forcing an emergency landing; the claim is unverified.", "REPORT", "MIDDLE EAST", "plane", PURPLE],
-  [6, "RUSSIAN DRONES HIT KHARKIV, 11 HURT", "Overnight strikes wound 11 people, including two children, in Ukraine's second city.", "WIRE", "EUROPE", "flame", RED],
-  [7, "FRANCE AND US DRAFT UN DEAL FOR LEBANON", "Paris works with Washington on a resolution to fill the vacuum left as UNIFIL hands over in the south.", "WIRE", "EUROPE", "globe", BLUE],
-  [8, "TRUMP PLAYS DOWN FBI DATABASE BREACH", "The president downplays the apparent hack of the FBI's NCIC crime database, adding a 'positive outlook'.", "WIRE", "N. AMERICA", "shield", NAVY2],
-  [9, "EU CHIEFS PROPOSE BUDGET CUTS, TECH TAX", "EU Council chair floats deep cuts to the 2028-2034 budget and a levy on digital platforms.", "WIRE", "EUROPE", "chart", GREEN],
-  [10, "GUPTA JAILED 19 YEARS IN PANNUN PLOT", "N. Gupta is sentenced to 19 years over the conspiracy to murder Sikh separatist Gurpatwant Pannun.", "WIRE", "N. AMERICA", "gavel", NAVY2],
-  [11, "COURT APPROVES $7.25BN ROUNDUP DEAL", "A judge endorses the $7.25 billion settlement over Roundup weedkiller cancer claims.", "WIRE", "N. AMERICA", "dollar", GREEN],
-  [12, "TAIWAN TAKES UP DRONE WARFARE", "As Trump grows closer to Xi, Taiwan's people turn to drones to defend the island.", "WIRE", "ASIA", "drone", TEAL],
-  [13, "MADRID EDGE CELTA; ARSENAL HELD 2-2", "Real Madrid win 2-1 at Celta while Newcastle hold Arsenal 2-2 in Sunday's big European fixtures.", "SCOREZAAP", "EUROPE", "ball", GREEN],
+  [2, "11 KILLED AFTER CARTEL BOSS CAPTURE", "Violence erupts in Sinaloa after troops seize FBI-wanted boss Meza Flores; 11 dead in the backlash.", "WIRE", "N. AMERICA", "flame", RED],
+  [3, "POLICE JAILED OVER RACIST ATTACK", "French officers jailed in a landmark ruling over racist violence against a black man.", "WIRE", "EUROPE", "gavel", BLUE],
+  [4, "WHITE HOUSE SEIZES REPORTERS' PHONES", "Journalists' phones seized on Air Force One after the Shenzhen summit, in a press-freedom row.", "WIRE", "N. AMERICA", "phone", NAVY2],
+  [5, "US 'WOULD WELCOME' LATIN AMERICAN UN CHIEF", "Ambassador Waltz says Washington would accept a UN leader from Latin America amid gridlock.", "WIRE", "S. AMERICA", "globe", PURPLE],
+  [6, "FINLAND TIGHTENS SECURITY AFTER DRONE HIT", "Helsinki steps up Baltic security after drones hit a Russia-bound freighter in the Gulf of Finland.", "WIRE", "EUROPE", "shield", BLUE],
+  [7, "NEPAL PM HEADS TO INDIA ON FIRST TRIP", "PM Balendra Shah flies to New Delhi on Sunday, his first foreign trip since taking office.", "WIRE", "ASIA", "flag", TEAL],
+  [8, "TRUMP: FLIGHT SYSTEMS OUTDATED BUT SAFE", "The president calls US flight systems outdated but safe after a week of ground stops and outages.", "WIRE", "N. AMERICA", "plane", ORANGE],
+  [9, "SENATOR: AI CHIP SALES TO CHINA RISK SECURITY", "A top Senate lawmaker says selling AI chips to China puts US security at risk.", "WIRE", "N. AMERICA", "chart", RED],
+  [10, "THAI YOUTH PROTEST FOR EDUCATION REFORM", "Young protesters march in Bangkok demanding education and political change.", "WIRE", "ASIA", "building", GREEN],
+  [11, "SPAIN TO EXPAND BANK TAX FOR HOUSING", "Madrid plans to widen its banking tax to fund housing, the PM says.", "WIRE", "EUROPE", "dollar", GREEN],
+  [12, "GRIPEN FAILED TO STOP MISSILE OVER POLAND", "A Swedish Gripen could not intercept a Russian-made missile over Polish soil, reports say.", "WIRE", "EUROPE", "drone", TEAL],
+  [13, "BANGLADESH BOOSTS SECURITY AS HASINA VOWS RETURN", "Dhaka tightens security ahead of ex-PM Hasina's vowed return from exile.", "WIRE", "ASIA", "shield", ORANGE],
 ];
 // [num, headline, source, region]
 const ALSO = [
-  [14, "FINLAND PROBES DRONE STRIKE ON RUSSIAN FREIGHTER", "WIRE", "EUROPE"],
-  [15, "SWEDEN SUMMONS RUSSIAN ENVOY OVER KYIV EMBASSY BLAST", "WIRE", "EUROPE"],
-  [16, "DENMARK SEEKS EU-WIDE CURBS ON RUSSIAN VISITORS", "WIRE", "EUROPE"],
-  [17, "ZELENSKY: CRIMEA BRIDGE 'WILL NOT STAND'", "WIRE", "EUROPE"],
-  [18, "UKRAINE HITS ISKANDER MISSILE-FUEL PLANT", "WIRE", "EUROPE"],
-  [19, "RUSSIAN STRIKES DAMAGE ZAPORIZHZHIA PRESCHOOLS", "WIRE", "EUROPE"],
-  [20, "MISSILE ATTACK ON ZELENSKY'S HOME CITY", "WIRE", "EUROPE"],
-  [21, "ZELENSKY: NEXT PEACE TALKS MUST BRING RESULTS", "WIRE", "EUROPE"],
-  [22, "FIRST LADY HOPES FOR UKRAINE TRUCE BY CHRISTMAS", "WIRE", "N. AMERICA"],
-  [23, "TRUMP: CHINA'S NUCLEAR BUILD-UP 'HOT AND HEAVY'", "WIRE", "ASIA"],
-  [24, "PALISADES FIRE SUSPECT CONVICTED", "WIRE", "N. AMERICA"],
-  [25, "IRAQ REOPENS JURF AL-NASR-KARBALA ROAD", "WIRE", "MIDDLE EAST"],
-  [26, "IRAQ BUSTS MAJOR NAJAF OIL-SMUGGLING RING", "WIRE", "MIDDLE EAST"],
-  [27, "PALESTINIAN KILLED NEAR RAMALLAH", "WIRE", "MIDDLE EAST"],
-  [28, "ISRAELI STRIKE KILLS 3 IN GAZA AID CAR", "WIRE", "MIDDLE EAST"],
-  [29, "MIGRANT CARAVAN MARCHES ACROSS MEXICO TO US BORDER", "WIRE", "N. AMERICA"],
-  [30, "TOP 10 DEFENCE-AI SPENDERS RANKED", "WIRE", "GLOBAL"],
-  [31, "INDIA A THRASH NEPAL BY 306 RUNS", "TECHNOSPORTS", "ASIA"],
-  [32, "PAKISTAN A BEAT UAE BY 61 RUNS", "TECHNOSPORTS", "ASIA"],
-  [33, "MI EMIRATES WIN ILT20 OPENER BY 52 RUNS", "SCOREZAAP", "ASIA"],
-  [34, "PALMEIRAS 1-1 FLAMENGO IN BRAZIL", "SCOREZAAP", "S. AMERICA"],
-  [35, "SIXERS AND HURRICANES WIN IN WBBL", "TECHNOSPORTS", "OCEANIA"],
-  [36, "ICE DANCERS QUIT WARSAW EVENT AFTER MINISTRY ROW", "WIRE", "EUROPE"],
-  [37, "RAIN WARNING FOR SOUTH-WEST ENGLAND", "MET OFFICE", "EUROPE"],
-  [38, "NIGERIA SIGNS DIGITAL PACT WITH 5 AFRICAN STATES", "LEGALBRIEF", "AFRICA"],
-  [39, "IFFI ADDS NEW ANIMATION SECTION", "PW LIVE", "ASIA"],
-  [40, "NATUROPATHY DAY MARKED ACROSS INDIA", "PW LIVE", "ASIA"],
-  [41, "SENSEX SLIPS; CRUDE OIL FALLS 3%", "PW LIVE", "ASIA"],
+  [14, "EL SALVADOR TROOPS RECLAIM HAITI STADIUM", "DUMPLING", "N. AMERICA"],
+  [15, "INDIAN-ORIGIN COUPLE SHOT DEAD NEAR CANADA WALMART", "WIRE", "N. AMERICA"],
+  [16, "STATES AIM FOR KILLER-ROBOT RULES BY 2028", "WIRE", "WORLD"],
+  [17, "BESSENT: NO MORE CURBS ON NVIDIA CHIP SALES", "WIRE", "N. AMERICA"],
+  [18, "SUPERCELL STORM SHOCKS SOUTH BRAZIL TOWN", "WIRE", "S. AMERICA"],
+  [19, "FINLAND MINISTER: RUSSIAN ATTACKS THREAT TO NATO", "WIRE", "EUROPE"],
+  [20, "ZELENSKY SEEKS NATO-TYPE SECURITY PLEDGES", "WIRE", "EUROPE"],
+  [21, "INDIA FACE NZ IN WELLINGTON TEST", "WIRE", "OCEANIA"],
+  [22, "ARTETA SWEATS ON RAYA SCAN AFTER NEWCASTLE DRAW", "CNA", "EUROPE"],
+  [23, "FEMA OFFICE SHUT BY BED BUGS; 1,000 SENT HOME", "WIRE", "N. AMERICA"],
+  [24, "SCIENTISTS SEQUENCE WHALE GENOMES FROM BREATH", "WIRE", "N. AMERICA"],
+  [25, "4,000-YEAR-OLD BRONZE RING FOUND IN SWISS ALPS", "WIRE", "EUROPE"],
+  [26, "NZ RECALLS KIDS' GARDEN SETS OVER ASBESTOS FEARS", "ABC", "OCEANIA"],
+  [27, "SPAIN ARRESTS 4 OVER CEUTA SMUGGLING RING", "WIRE", "EUROPE"],
+  [28, "JAPAN DOWN TO LAST CAPTIVE SEA OTTER", "WIRE", "ASIA"],
+  [29, "INDONESIA EX-DRUGS CHIEF JAILED 20 YEARS", "WIRE", "ASIA"],
+  [30, "TURKEY DISMISSES MALAYSIA ROHINGYA PLAN", "WIRE", "ASIA"],
 ];
 const REGIONS = [
-  ["EUROPE", 15, BLUE],
-  ["MIDDLE EAST", 7, RED],
-  ["N. AMERICA", 7, NAVY2],
-  ["ASIA", 8, TEAL],
-  ["AFRICA", 1, ORANGE],
-  ["S. AMERICA", 1, GREEN],
-  ["OCEANIA", 1, PURPLE],
+  ["EUROPE", 9, BLUE],
+  ["N. AMERICA", 9, NAVY2],
+  ["ASIA", 6, TEAL],
+  ["MIDDLE EAST", 1, RED],
+  ["S. AMERICA", 2, GREEN],
+  ["OCEANIA", 2, PURPLE],
+  ["WORLD", 1, ORANGE],
 ];
 const STATS = [
-  ["129", "BODIES FOUND IN GAZA"],
-  ["$7.25BN", "ROUNDUP SETTLEMENT"],
-  ["19 YRS", "GUPTA SENTENCE"],
-  ["11 HURT", "KHARKIV DRONE HIT"],
-  ["306 RUNS", "INDIA A WIN"],
+  ["06:00 GMT", "COP31 VOTE DUE"],
   ["~200", "NATIONS AT COP31"],
+  ["130", "STATES WANT FOSSIL WORDS"],
+  ["11", "KILLED AFTER MEXICO RAID"],
+  ["1,000", "FEMA STAFF SENT HOME"],
+  ["4,000 YRS", "AGE OF BRONZE RING"],
 ];
 
 // ---------- drawn visual scenes (all shapes, no images) ----------
@@ -421,12 +411,12 @@ function drawMasthead(cv) {
   cv.fill(0, 0, W, 92, NAVY);
   cv.fill(0, 92, W, 4, GOLD);
   drawTextCentered(cv, 512, 10, "SUNDAY 22 NOVEMBER 2026", 4, GOLD, true);
-  drawTextCentered(cv, 512, 52, "41 STORIES FROM 7 REGIONS - THE WORLD IN ONE PICTURE", 2, WHITE, false);
+  drawTextCentered(cv, 512, 52, "30 STORIES FROM 7 REGIONS - THE WORLD IN ONE PICTURE", 2, WHITE, false);
   drawTextCentered(cv, 512, 76, "EVERY STORY FIRST REPORTED ON 22 NOVEMBER 2026", 1, [170, 190, 220], false);
 }
 
 function drawStats(cv) {
-  const bw = 164, gap = 6, y = 96, h = 44;
+  const bw = 164, gap = 6, y = 230, h = 44;
   STATS.forEach((s, i) => {
     const x = 6 + i * (bw + gap);
     cv.fill(x, y, bw, h, WHITE);
@@ -458,8 +448,36 @@ function drawTopPanel(cv, story, px, py) {
   drawText(cv, px + 90, py + 76, source + "  -  " + region, 1, accent, true);
 }
 
+function drawLead(cv) {
+  const x = 6, y = 96, w = 1012, h = 130;
+  cv.fill(x, y, w, h, WHITE);
+  cv.rect(x, y, w, h, [210, 210, 215]);
+  cv.fill(x, y, w, 3, RED);
+  // big globe visual, drawn by hand
+  const gx = x + 8, gy = y + 8, gw = 150, gh = 114;
+  cv.fill(gx, gy, gw, gh, SKY);
+  const cx = gx + 75, cy = gy + 57;
+  cv.circle(cx, cy, 50, BLUE);
+  cv.ring(cx, cy, 50, 3, WHITE);
+  cv.fill(cx - 3, cy - 50, 6, 100, [120, 190, 230]);
+  cv.fill(cx - 50, cy - 3, 100, 6, [120, 190, 230]);
+  cv.circle(cx - 24, cy - 18, 13, GREEN);
+  cv.circle(cx + 24, cy + 22, 15, GREEN);
+  cv.circle(cx + 26, cy - 24, 10, GREEN);
+  cv.rect(gx, gy, gw, gh, [200, 200, 205]);
+  // red LEAD tag + giant headline
+  cv.fill(x + 170, y + 8, 44, 14, RED);
+  drawText(cv, x + 176, y + 11, "LEAD", 1, WHITE, true);
+  drawText(cv, x + 222, y + 8, "COP31 UNVEILS NEW DEAL TEXT", 2, RED, true);
+  drawText(cv, x + 170, y + 30, "AS TALKS RUN INTO SUNDAY", 2, INK, true);
+  drawText(cv, x + 170, y + 58, "AFTER DEADLOCK OVER FOSSIL FUELS, THE ANTALYA PRESIDENCY PUTS A NEW PACKAGE", 1, [60, 60, 68], false);
+  drawText(cv, x + 170, y + 67, "TO NEARLY 200 NATIONS. 130 STATES DEMANDED A TRANSITION AWAY FROM FOSSIL FUELS.", 1, [60, 60, 68], false);
+  drawText(cv, x + 170, y + 92, "DELEGATES HAVE UNTIL 03:00 GMT TO OBJECT - VOTE AT 06:00 GMT - REUTERS", 1, TEAL, true);
+  drawText(cv, x + 170, y + 108, "NOT SETTLED: THE VOTE HAS NOT HAPPENED YET", 1, RED, true);
+}
+
 function drawRegions(cv) {
-  const y = 614, h = 28;
+  const y = 652, h = 28;
   drawText(cv, 6, y + 4, "STORIES BY REGION:", 1, INK, true);
   const x0 = 150;
   const bw = 122, gap = 5;
@@ -473,7 +491,7 @@ function drawRegions(cv) {
 }
 
 function drawMap(cv) {
-  const x = 6, y = 646, w = 1012, h = 154;
+  const x = 6, y = 684, w = 1012, h = 112;
   cv.fill(x, y, w, h, WHITE);
   cv.rect(x, y, w, h, [210, 210, 215]);
   cv.fill(x, y, w, 3, NAVY);
@@ -483,18 +501,17 @@ function drawMap(cv) {
   const sea = [206, 228, 240];
   cv.fill(x + 6, y + 28, w - 12, h - 34, sea);
   // continents (rough shapes from circles + rects)
-  cv.fill(120, 690, 150, 40, land); cv.circle(140, 700, 22, land); cv.circle(240, 705, 25, land);
-  cv.fill(180, 720, 60, 16, land);
-  cv.circle(215, 752, 17, land); cv.fill(200, 746, 30, 34, land);
-  cv.fill(460, 680, 70, 30, land); cv.circle(470, 690, 15, land); cv.circle(510, 688, 14, land);
-  cv.circle(440, 680, 6, land);
-  cv.circle(480, 732, 26, land); cv.fill(460, 730, 45, 40, land); cv.circle(490, 762, 18, land);
-  cv.fill(540, 675, 230, 45, land); cv.circle(600, 690, 30, land); cv.circle(700, 685, 35, land);
-  cv.fill(650, 715, 90, 18, land); cv.circle(760, 700, 20, land);
-  cv.fill(800, 748, 70, 22, land); cv.circle(815, 754, 12, land); cv.circle(850, 752, 10, land);
+  cv.fill(110, 724, 140, 26, land); cv.circle(130, 734, 16, land); cv.circle(235, 738, 18, land);
+  cv.fill(175, 748, 55, 10, land);
+  cv.circle(210, 768, 12, land); cv.fill(198, 760, 26, 22, land);
+  cv.fill(455, 720, 60, 20, land); cv.circle(465, 728, 10, land); cv.circle(500, 726, 9, land);
+  cv.circle(475, 758, 18, land); cv.fill(458, 756, 38, 24, land); cv.circle(488, 772, 12, land);
+  cv.fill(530, 718, 220, 30, land); cv.circle(590, 730, 22, land); cv.circle(690, 726, 24, land);
+  cv.fill(640, 746, 80, 12, land); cv.circle(745, 732, 14, land);
+  cv.fill(790, 766, 60, 14, land); cv.circle(805, 770, 8, land); cv.circle(838, 768, 7, land);
   const pins = [
-    [600, 690], [545, 725], [560, 740], [148, 688], [582, 766], [520, 682],
-    [500, 720], [188, 698], [470, 682], [158, 726], [205, 738], [700, 700], [435, 685],
+    [560, 740], [148, 752], [462, 730], [168, 726], [208, 772], [522, 718],
+    [640, 736], [192, 746], [222, 730], [695, 756], [448, 752], [498, 726], [660, 752],
   ];
   pins.forEach((p, i) => {
     const n = String(i + 1);
@@ -504,31 +521,45 @@ function drawMap(cv) {
   });
 }
 
+function drawDateCheck(cv) {
+  const x = 6, y = 800, w = 1012, h = 64;
+  cv.fill(x, y, w, h, [255, 244, 238]);
+  cv.rect(x, y, w, h, RED);
+  cv.fill(x, y, w, 3, RED);
+  drawText(cv, x + 10, y + 8, "DATE CHECK - NOT SUNDAY'S NEWS: FIRST REPORTED SAT 21 NOV OR EARLIER", 1, RED, true);
+  drawText(cv, x + 10, y + 21, "PERU QUAKE - ICJ MYANMAR VERDICT (19 NOV) - SHENZHEN DECLARATION - WALL ST FALL", 1, INK, false);
+  drawText(cv, x + 10, y + 32, "IRAN STRIKES ON US BASES IN BAHRAIN - EL CHAPO ISIDRO CAPTURED - KRYVYI RIH ATTACK", 1, INK, false);
+  drawText(cv, x + 10, y + 43, "GUPTA JAILED 19 YRS (20 NOV) - ROUNDUP $7.25BN (20 NOV) - HEGSETH CANADA MEMO (20 NOV)", 1, INK, false);
+  drawText(cv, x + 10, y + 54, "NOT SETTLED: COP31 VOTE AT 06:00 GMT STILL TO COME - IRAN TANKER CONVOY STILL MOORED OFF KHARG", 1, RED, true);
+}
+
 function drawAlso(cv) {
-  drawText(cv, 6, 806, "ALSO ON 22 NOVEMBER", 2, NAVY, true);
-  cv.fill(230, 814, 784, 2, GOLD);
+  drawText(cv, 6, 868, "ALSO ON 22 NOVEMBER", 2, NAVY, true);
+  cv.fill(230, 876, 784, 2, GOLD);
   const colX = [10, 522];
   ALSO.forEach((s, i) => {
-    const col = i < 14 ? 0 : 1;
-    const row = i % 14;
-    const y = 824 + row * 13;
+    const col = i < 9 ? 0 : 1;
+    const row = i % 9;
+    const y = 886 + row * 12;
     const line = s[0] + ". " + s[1] + " - " + s[2];
     drawText(cv, colX[col], y, line, 1, INK, false);
   });
-  drawTextCentered(cv, 512, 1010, "ALL 41 STORIES FIRST REPORTED ON SUNDAY 22 NOVEMBER 2026 - SOURCES AS TAGGED", 1, MUTED, false);
+  drawTextCentered(cv, 512, 1004, "ALL 30 STORIES FIRST REPORTED ON SUNDAY 22 NOVEMBER 2026 - SOURCES AS TAGGED", 1, MUTED, false);
 }
 
 // ---------- build ----------
 function build() {
   const cv = new Canvas(W, H, PAPER);
   drawMasthead(cv);
+  drawLead(cv);
   drawStats(cv);
   TOP.forEach((s, i) => {
     const col = i % 3, row = Math.floor(i / 3);
-    drawTopPanel(cv, s, 6 + col * 340, 146 + row * 94);
+    drawTopPanel(cv, s, 6 + col * 340, 278 + row * 94);
   });
   drawRegions(cv);
   drawMap(cv);
+  drawDateCheck(cv);
   drawAlso(cv);
   return encodePNG(cv.px, W, H);
 }
@@ -539,6 +570,6 @@ function main() {
   const png = build();
   fs.writeFileSync(path.join(outDir, "entry.png"), png);
   console.log("entry.png bytes: " + png.length);
-  console.log("stories: " + (TOP.length + ALSO.length));
+  console.log("stories: " + (1 + TOP.length + ALSO.length));
 }
 main();
