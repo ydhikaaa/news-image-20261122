@@ -406,6 +406,92 @@ function drawScene(cv, x, y, w, h, scene, accent) {
   cv.rect(x, y, w, h, [200, 200, 205]);
 }
 
+// ---------- world map data: continent coastlines as [lon, lat] vertices ----------
+// Hand-written from geographic knowledge; projected equirectangularly by the
+// caller. Continents are composed of simple polygons (overlaps merge visually).
+const CONTINENTS = [
+  // North America: Alaska down the Pacific coast, Central America, up the Atlantic coast, Hudson Bay notch, Arctic coast back west.
+  [[-168, 66], [-165, 60], [-158, 58], [-150, 59], [-140, 60], [-135, 57], [-130, 54], [-125, 49], [-124, 42], [-120, 34], [-114, 29], [-110, 24], [-105, 20], [-97, 16], [-92, 15], [-87, 13], [-83, 9], [-80, 8], [-78, 7], [-80, 10], [-81, 14], [-83, 17], [-86, 21], [-84, 24], [-81, 26], [-80, 30], [-76, 35], [-74, 39], [-70, 42], [-66, 44], [-60, 46], [-55, 47], [-60, 50], [-64, 53], [-68, 55], [-72, 58], [-78, 55], [-82, 52], [-86, 55], [-90, 58], [-92, 62], [-88, 65], [-85, 66], [-90, 68], [-95, 69], [-105, 68], [-115, 69], [-125, 70], [-135, 69], [-145, 70], [-155, 71], [-162, 70], [-166, 68]],
+  // Greenland
+  [[-44, 60], [-40, 63], [-32, 68], [-22, 70], [-20, 74], [-30, 76], [-45, 78], [-58, 77], [-62, 74], [-58, 70], [-55, 65], [-50, 61]],
+  // South America: Colombia east along the north coast, Brazil bulge, down to Tierra del Fuego, up the Pacific coast.
+  [[-77, 7], [-75, 10], [-72, 12], [-68, 11], [-64, 10], [-60, 8], [-55, 6], [-52, 4], [-50, 0], [-46, -2], [-42, -3], [-38, -5], [-35, -8], [-37, -12], [-39, -17], [-41, -22], [-46, -25], [-49, -29], [-53, -33], [-58, -36], [-62, -39], [-65, -42], [-66, -46], [-68, -50], [-68, -54], [-70, -55], [-73, -52], [-74, -48], [-73, -42], [-73, -36], [-72, -30], [-71, -24], [-70, -19], [-71, -14], [-75, -10], [-79, -6], [-81, -3], [-80, 1], [-79, 5]],
+  // Europe (main): Iberia along the Med to Turkey, up the Black Sea coast, west along the north, down the Atlantic coast.
+  [[-9, 37], [-6, 36], [-2, 37], [0, 39], [3, 42], [7, 43], [10, 44], [13, 43], [15, 41], [16, 38], [18, 39], [19, 41], [20, 40], [23, 37], [26, 38], [28, 37], [30, 36], [28, 38], [28, 41], [28, 44], [30, 46], [30, 48], [28, 50], [24, 52], [20, 54], [18, 55], [15, 55], [12, 54], [10, 54], [8, 55], [7, 54], [5, 53], [2, 51], [0, 50], [-2, 48], [-4, 48], [-2, 44], [-9, 43]],
+  // Scandinavia (overlaps Europe main at the top)
+  [[5, 58], [5, 60], [8, 62], [12, 64], [15, 66], [18, 68], [22, 70], [26, 71], [30, 70], [30, 67], [28, 64], [26, 61], [24, 59], [22, 57], [20, 56], [18, 55], [15, 55], [12, 56], [10, 57], [8, 58]],
+  // United Kingdom
+  [[-5, 50], [-3, 53], [-5, 56], [-3, 58], [-1, 57], [0, 54], [1, 51], [-1, 50]],
+  // Africa: Dakar north up the Atlantic coast, Med coast east, Red Sea, Horn, down the east coast, up the west coast.
+  [[-17, 15], [-16, 21], [-13, 27], [-10, 31], [-6, 33], [-1, 35], [5, 37], [10, 37], [11, 33], [15, 32], [20, 32], [25, 32], [30, 31], [32, 29], [34, 28], [36, 26], [38, 22], [39, 19], [41, 15], [43, 12], [48, 11], [51, 10], [51, 6], [48, 2], [44, 0], [41, -3], [40, -8], [40, -14], [38, -18], [36, -22], [34, -26], [32, -29], [28, -33], [24, -34], [20, -35], [17, -32], [15, -28], [13, -22], [12, -17], [13, -12], [12, -8], [10, -4], [9, 0], [9, 4], [6, 4], [2, 6], [-3, 5], [-8, 5], [-12, 8], [-15, 11], [-17, 13]],
+  // Madagascar
+  [[44, -12], [47, -15], [50, -16], [49, -20], [46, -24], [44, -25], [43, -21], [43, -16]],
+  // Asia (main): Turkey, Caucasus, Urals to the Arctic coast, east along Siberia, down the Pacific coast, India, Arabia, back to Turkey.
+  [[28, 41], [30, 46], [35, 47], [40, 47], [45, 46], [50, 47], [55, 46], [58, 55], [60, 62], [65, 68], [68, 70], [68, 73], [75, 73], [85, 74], [95, 76], [105, 77], [115, 74], [125, 73], [135, 72], [145, 72], [155, 70], [165, 68], [175, 66], [178, 65], [173, 63], [170, 60], [162, 58], [160, 55], [158, 52], [156, 50], [150, 48], [142, 50], [140, 45], [137, 42], [133, 40], [130, 40], [127, 39], [126, 38], [122, 38], [120, 35], [122, 32], [120, 29], [118, 25], [112, 22], [109, 19], [107, 15], [105, 10], [103, 8], [100, 10], [98, 14], [96, 16], [93, 18], [91, 22], [88, 22], [85, 20], [82, 17], [80, 14], [79, 10], [77, 8], [76, 10], [73, 15], [71, 20], [69, 22], [66, 25], [62, 25], [58, 25], [56, 26], [54, 27], [52, 28], [50, 29], [48, 29], [48, 27], [50, 25], [53, 24], [56, 23], [58, 21], [57, 19], [55, 17], [52, 15], [48, 14], [45, 13], [43, 12], [42, 15], [40, 19], [39, 22], [38, 25], [37, 28], [36, 30], [35, 32], [36, 36], [33, 36], [30, 36], [28, 38]],
+  // Malay Peninsula (thin, overlaps Asia main)
+  [[100, 13], [101, 10], [102, 7], [103, 4], [104, 1], [103, 2], [101, 4], [100, 7], [99, 10], [98, 13]],
+  // Japan
+  [[130, 31], [132, 33], [135, 34], [137, 35], [139, 36], [140, 38], [141, 40], [142, 42], [144, 44], [142, 44], [140, 41], [138, 38], [136, 35], [133, 34], [131, 32]],
+  // Sri Lanka
+  [[80, 9], [81, 7], [80, 6], [79, 8]],
+  // Sumatra
+  [[95, 5], [97, 4], [99, 1], [101, -2], [103, -4], [105, -5], [106, -6], [104, -5], [102, -2], [100, 0], [97, 2], [95, 4]],
+  // Borneo
+  [[109, 1], [111, 3], [114, 5], [117, 6], [118, 3], [117, 0], [115, -3], [112, -4], [110, -2], [109, 0]],
+  // Java
+  [[105, -6], [108, -7], [111, -7], [114, -8], [114, -9], [111, -8], [108, -8], [105, -7]],
+  // New Guinea
+  [[131, -1], [134, -2], [137, -3], [141, -3], [145, -5], [148, -7], [150, -8], [147, -9], [144, -8], [140, -7], [136, -5], [133, -3], [131, -1]],
+  // Philippines
+  [[120, 18], [121, 16], [122, 14], [122, 11], [123, 10], [122, 12], [121, 15], [120, 17]],
+  // Australia
+  [[113, -22], [114, -27], [115, -32], [117, -35], [121, -34], [126, -32], [129, -32], [132, -32], [135, -35], [137, -35], [140, -38], [143, -39], [146, -39], [149, -37], [151, -34], [153, -30], [153, -27], [151, -24], [148, -20], [145, -17], [142, -14], [142, -11], [140, -17], [137, -15], [135, -12], [132, -11], [130, -13], [127, -14], [124, -16], [121, -19], [118, -20], [115, -21]],
+  // Tasmania
+  [[145, -41], [147, -41], [148, -42], [147, -43], [146, -43], [145, -42]],
+  // New Zealand
+  [[167, -45], [169, -43], [171, -41], [173, -40], [175, -38], [177, -38], [176, -40], [174, -41], [172, -42], [170, -44], [168, -46]],
+];
+const LAND = [96, 150, 80];
+const LAND_EDGE = [74, 118, 64];
+
+// Scanline polygon fill; pts are [x, y] pixel coords; clip(x, y) optionally limits the fill.
+function polyFill(cv, pts, color, clip) {
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of pts) { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+  for (let y = Math.ceil(minY); y <= Math.floor(maxY); y++) {
+    const xs = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
+        xs.push(a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
+      }
+    }
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      for (let x = Math.ceil(xs[k]); x <= Math.floor(xs[k + 1]); x++) {
+        if (!clip || clip(x, y)) cv.set(x, y, color);
+      }
+    }
+  }
+}
+function polyOutline(cv, pts, color) {
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    cv.line(Math.round(a[0]), Math.round(a[1]), Math.round(b[0]), Math.round(b[1]), color);
+  }
+}
+// Draw all continents through a projection fn(lon, lat) -> [x, y]; clip limits the fill (globe disc).
+function drawContinents(cv, project, clip, outline) {
+  for (const poly of CONTINENTS) {
+    polyFill(cv, poly.map((p) => project(p[0], p[1])), LAND, clip);
+  }
+  if (outline) {
+    for (const poly of CONTINENTS) {
+      polyOutline(cv, poly.map((p) => project(p[0], p[1])), LAND_EDGE);
+    }
+  }
+}
+
 // ---------- layout ----------
 function drawMasthead(cv) {
   cv.fill(0, 0, W, 92, NAVY);
@@ -453,17 +539,16 @@ function drawLead(cv) {
   cv.fill(x, y, w, h, WHITE);
   cv.rect(x, y, w, h, [210, 210, 215]);
   cv.fill(x, y, w, 3, RED);
-  // big globe visual, drawn by hand
+  // big globe visual: real continents clipped to the disc, drawn by hand
   const gx = x + 8, gy = y + 8, gw = 150, gh = 114;
   cv.fill(gx, gy, gw, gh, SKY);
-  const cx = gx + 75, cy = gy + 57;
-  cv.circle(cx, cy, 50, BLUE);
-  cv.ring(cx, cy, 50, 3, WHITE);
-  cv.fill(cx - 3, cy - 50, 6, 100, [120, 190, 230]);
-  cv.fill(cx - 50, cy - 3, 100, 6, [120, 190, 230]);
-  cv.circle(cx - 24, cy - 18, 13, GREEN);
-  cv.circle(cx + 24, cy + 22, 15, GREEN);
-  cv.circle(cx + 26, cy - 24, 10, GREEN);
+  const cx = gx + 75, cy = gy + 57, gr = 52;
+  cv.circle(cx, cy, gr, BLUE);
+  const gProject = (lon, lat) => [cx + (lon / 180) * 50, cy - (lat / 90) * 50];
+  drawContinents(cv, gProject, (px, py) => (px - cx) * (px - cx) + (py - cy) * (py - cy) <= 50 * 50, false);
+  cv.fill(cx - 2, cy - gr, 4, gr * 2, [120, 190, 230]);
+  cv.fill(cx - gr, cy - 2, gr * 2, 4, [120, 190, 230]);
+  cv.ring(cx, cy, gr, 3, WHITE);
   cv.rect(gx, gy, gw, gh, [200, 200, 205]);
   // red LEAD tag + giant headline
   cv.fill(x + 170, y + 8, 44, 14, RED);
@@ -497,26 +582,38 @@ function drawMap(cv) {
   cv.fill(x, y, w, 3, NAVY);
   drawText(cv, x + 10, y + 9, "WHERE IT HAPPENED", 2, NAVY, true);
   drawText(cv, x + 700, y + 11, "RED PIN = TOP STORY NUMBER", 1, MUTED, false);
-  const land = [96, 150, 80];
   const sea = [206, 228, 240];
-  cv.fill(x + 6, y + 28, w - 12, h - 34, sea);
-  // continents (rough shapes from circles + rects)
-  cv.fill(110, 724, 140, 26, land); cv.circle(130, 734, 16, land); cv.circle(235, 738, 18, land);
-  cv.fill(175, 748, 55, 10, land);
-  cv.circle(210, 768, 12, land); cv.fill(198, 760, 26, 22, land);
-  cv.fill(455, 720, 60, 20, land); cv.circle(465, 728, 10, land); cv.circle(500, 726, 9, land);
-  cv.circle(475, 758, 18, land); cv.fill(458, 756, 38, 24, land); cv.circle(488, 772, 12, land);
-  cv.fill(530, 718, 220, 30, land); cv.circle(590, 730, 22, land); cv.circle(690, 726, 24, land);
-  cv.fill(640, 746, 80, 12, land); cv.circle(745, 732, 14, land);
-  cv.fill(790, 766, 60, 14, land); cv.circle(805, 770, 8, land); cv.circle(838, 768, 7, land);
+  const seaX0 = x + 6, seaY0 = y + 28, seaX1 = x + w - 6, seaY1 = y + h - 6;
+  cv.fill(seaX0, seaY0, seaX1 - seaX0, seaY1 - seaY0, sea);
+  // Equirectangular projection: lon -180..180 -> sea width, lat 80..-60 -> sea height.
+  const project = (lon, lat) => [
+    seaX0 + ((lon + 180) / 360) * (seaX1 - seaX0),
+    seaY0 + ((80 - lat) / 140) * (seaY1 - seaY0),
+  ];
+  // Subtle ocean graticule: every 30 deg longitude, lat 60/30/0/-30.
+  const grat = [188, 212, 230];
+  for (let lon = -150; lon <= 150; lon += 30) {
+    const gx = Math.round(project(lon, 0)[0]);
+    cv.line(gx, seaY0, gx, seaY1 - 1, grat);
+  }
+  for (const lat of [60, 30, 0, -30]) {
+    const gy = Math.round(project(0, lat)[1]);
+    cv.line(seaX0, gy, seaX1 - 1, gy, grat);
+  }
+  // Recognizable continents with a darker coastline edge.
+  drawContinents(cv, project, null, true);
+  // Pins: story number -> true location. 1 Antalya (COP31), 2 Sinaloa, 3 Paris,
+  // 4 Washington DC, 5 Brazil, 6 Finland (nudged ~1 deg E of the border so it
+  // clears the Poland pin), 7 Nepal, 8 central USA, 9 Beijing, 10 Bangkok,
+  // 11 Madrid, 12 Warsaw, 13 Dhaka. Radius 7, spread so no two touch.
   const pins = [
-    [560, 740], [148, 752], [462, 730], [168, 726], [208, 772], [522, 718],
-    [640, 736], [192, 746], [222, 730], [695, 756], [448, 752], [498, 726], [660, 752],
+    [594, 736], [214, 743], [515, 729], [296, 735], [365, 762], [582, 721],
+    [741, 741], [247, 735], [829, 734], [787, 749], [499, 734], [567, 727], [759, 743],
   ];
   pins.forEach((p, i) => {
     const n = String(i + 1);
-    cv.circle(p[0], p[1], 9, RED);
-    cv.ring(p[0], p[1], 9, 1, WHITE);
+    cv.circle(p[0], p[1], 7, RED);
+    cv.ring(p[0], p[1], 7, 1, WHITE);
     drawText(cv, p[0] - Math.floor(textWidth(n, 1) / 2), p[1] - 3, n, 1, WHITE, true);
   });
 }
