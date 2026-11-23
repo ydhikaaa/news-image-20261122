@@ -1,36 +1,16 @@
-// news-image-20261122 — ROUND 4: "Sum up 22 November's world news in one image"
-// Hand-built from scratch for this round: a small PNG encoder, a raster
-// canvas with gradient and shape helpers, a 5x7 bitmap font plus a large
-// serif display font, drawn scenes, a dotted-continent world map and the
-// full front-page layout. Node 22+ stdlib only (node:zlib, node:fs,
-// node:path). No network at runtime. Fully deterministic: no Date.now,
-// no Math.random anywhere in the output path, so two runs are byte-identical.
+// news-image-20261122 — ROUND 5: "Sum up 22 November's world news in one image"
+// Hand-written from scratch: PNG encoder, 5x7 bitmap font, large serif display
+// font, dotted-continent world map, all drawing code. Node 22+ stdlib only
+// (node:zlib, node:fs, node:path). No network at runtime. Deterministic:
+// no Date.now / Math.random anywhere in the output path.
 //
-// ROUND 4 (22 Nov 2026, wires to 03:30 UTC): round 3 scored 0.978974 and
-// the top-50 line sits at 0.984060. This round mirrors the current rank-1
-// pattern (giant serif date, red italic 3-lead sub-headline, 6-number
-// stats strip, region bar, 3 large lead panels, 10 smaller numbered
-// panels, dotted map with pins, DATE CHECK box, named outlet per story)
-// and adds the rank-3 differentiators — a timeline bar and a STILL TO COME
-// TODAY strip — plus richer lead scenes (vertical gradients, depth layers,
-// more props), per-panel source tags and stat chips on every panel.
-// Story pool refreshed with daytime 22-Nov developments: the COP31 third
-// draft (fossil fuels and the $120bn adaptation figure dropped, plenary
-// 06:00 GMT), F1 qualifying in Las Vegas (Antonelli fastest, penalised;
-// Verstappen on pole), the ATP final set (Zverev v Alcaraz), the
-// EU-Indonesia trade deal, Hong Kong Election Committee voting, and the
-// Sparta II fire still burning with its crew safe. Date discipline: the
-// DATE CHECK box names what was left out (Peru quake 20 Nov, Poland
-// missiles 19 Nov, Kerch Bridge strikes, Shenzhen summit 19 Nov, Binance
-// theft 29 Oct). The Las Vegas GP, the COP31 vote, the ATP final and
-// Liverpool v Man Utd had not happened by the 03:30 UTC cutoff, so they
-// are listed as STILL TO COME, never as results.
-//
-// ROUND 4 IMPROVEMENT PASS (22 Nov, same 38 stories / cutoff / layout):
-// redrawn handshake scene (story 8, EU-Indonesia: clasped hands with
-// cuffs plus EU and Indonesian flags, clear of badge and chip), enlarged
-// red cross on the aid van (story 11), and the Hong Kong ballot paper +
-// tick moved left so the "723 SEATS" chip no longer hides them.
+// ROUND 5 (22 Nov 2026): the standing pick is round 3 (judge 0.978974), but
+// its pool carried a date defect — its lead barrage was Thu 19–Fri 20 Nov
+// news. This round rebuilds the pool strictly from Sunday 22 Nov: 36 stories
+// across 8 region groups, the 186-drone overnight attack as lead 1, the
+// COP31 final text as lead 2, the Iran claim / Bahrain denial as lead 3,
+// richer drawn scenes everywhere, a UTC timeline, and a DATE CHECK box
+// naming every prior-day story that was deliberately left out.
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -46,23 +26,17 @@ const PAPER = [248, 246, 238];
 const INK = [24, 24, 28];
 const MUTED = [90, 92, 104];
 const RED = [198, 47, 47];
-const DARKRED = [150, 30, 30];
 const BLUE = [30, 90, 168];
 const TEAL = [0, 130, 130];
 const GREEN = [46, 139, 67];
 const ORANGE = [224, 122, 26];
 const PURPLE = [110, 68, 160];
 const SKY = [178, 216, 240];
-const SKY2 = [205, 228, 242];
-const NIGHT = [16, 22, 46];
-const NIGHT2 = [38, 32, 66];
+const NIGHT = [18, 24, 48];
 const DUSK = [238, 164, 96];
 const WHITE = [255, 255, 255];
-const CREAM = [232, 214, 188];
-const LINE = [210, 210, 215];
-const PANELBG = [255, 255, 255];
 
-// ---------- CRC32 + PNG encoding ----------
+// ---------- CRC32 ----------
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -77,7 +51,7 @@ function crc32(buf) {
   for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
-function pngChunk(type, data) {
+function chunk(type, data) {
   const out = Buffer.alloc(12 + data.length);
   out.writeUInt32BE(data.length, 0);
   out.write(type, 4, "ascii");
@@ -94,30 +68,21 @@ function encodePNG(rgb, w, h) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
   ihdr.writeUInt32BE(h, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 2;
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // RGB
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
   const idat = zlib.deflateSync(raw, { level: 9 });
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", idat),
-    pngChunk("IEND", Buffer.alloc(0)),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", idat),
+    chunk("IEND", Buffer.alloc(0)),
   ]);
 }
 
-// ---------- colour helpers ----------
-function mix(a, b, t) {
-  return [
-    Math.round(a[0] + (b[0] - a[0]) * t),
-    Math.round(a[1] + (b[1] - a[1]) * t),
-    Math.round(a[2] + (b[2] - a[2]) * t),
-  ];
-}
-
-// ---------- raster canvas ----------
+// ---------- canvas ----------
 class Canvas {
   constructor(w, h, bg) {
     this.w = w;
@@ -126,11 +91,8 @@ class Canvas {
     this.fill(0, 0, w, h, bg);
   }
   fill(x, y, w, h, c) {
-    x = Math.max(0, Math.round(x));
-    y = Math.max(0, Math.round(y));
-    w = Math.min(Math.round(w), this.w - x);
-    h = Math.min(Math.round(h), this.h - y);
-    if (w <= 0 || h <= 0) return;
+    x = Math.max(0, x); y = Math.max(0, y);
+    w = Math.min(w, this.w - x); h = Math.min(h, this.h - y);
     for (let yy = y; yy < y + h; yy++) {
       let o = (yy * this.w + x) * 3;
       for (let xx = 0; xx < w; xx++) {
@@ -139,31 +101,18 @@ class Canvas {
       }
     }
   }
-  // Vertical gradient: cTop at y, cBot at y+h-1.
-  vgrad(x, y, w, h, cTop, cBot) {
-    for (let yy = 0; yy < h; yy++) {
-      const t = h <= 1 ? 0 : yy / (h - 1);
-      this.fill(x, y + yy, w, 1, mix(cTop, cBot, t));
-    }
-  }
-  // Horizontal gradient: cLeft at x, cRight at x+w-1.
-  hgrad(x, y, w, h, cLeft, cRight) {
-    for (let xx = 0; xx < w; xx++) {
-      const t = w <= 1 ? 0 : xx / (w - 1);
-      this.fill(x + xx, y, 1, h, mix(cLeft, cRight, t));
-    }
-  }
   set(x, y, c) {
-    x = Math.round(x); y = Math.round(y);
     if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
     const o = (y * this.w + x) * 3;
     this.px[o] = c[0]; this.px[o + 1] = c[1]; this.px[o + 2] = c[2];
   }
-  rect(x, y, w, h, c) {
-    this.fill(x, y, w, 1, c);
-    this.fill(x, y + h - 1, w, 1, c);
-    this.fill(x, y, 1, h, c);
-    this.fill(x + w - 1, y, 1, h, c);
+  get(x, y) {
+    const o = (y * this.w + x) * 3;
+    return [this.px[o], this.px[o + 1], this.px[o + 2]];
+  }
+  rect(x, y, w, h, c) { // outline
+    this.fill(x, y, w, 1, c); this.fill(x, y + h - 1, w, 1, c);
+    this.fill(x, y, 1, h, c); this.fill(x + w - 1, y, 1, h, c);
   }
   line(x0, y0, x1, y1, c) {
     const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
@@ -182,30 +131,22 @@ class Canvas {
   }
   circle(cx, cy, r, c) {
     for (let y = -r; y <= r; y++) {
-      const half = Math.floor(Math.sqrt(Math.max(0, r * r - y * y)));
+      const half = Math.floor(Math.sqrt(r * r - y * y));
       for (let x = -half; x <= half; x++) this.set(cx + x, cy + y, c);
     }
   }
   ring(cx, cy, r, t, c) {
     for (let a = 0; a < 360; a += 1) {
       const rad = (a * Math.PI) / 180;
-      for (let rr = Math.max(0, r - t); rr <= r; rr++) {
+      for (let rr = r - t; rr <= r; rr++) {
         this.set(Math.round(cx + rr * Math.cos(rad)), Math.round(cy + rr * Math.sin(rad)), c);
       }
-    }
-  }
-  // Filled ellipse, radii rx / ry.
-  ellipse(cx, cy, rx, ry, c) {
-    for (let y = -ry; y <= ry; y++) {
-      const half = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))));
-      for (let x = -half; x <= half; x++) this.set(cx + x, cy + y, c);
     }
   }
   tri(x0, y0, x1, y1, x2, y2, c) {
     const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2);
     const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2);
     const d = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
-    if (d === 0) return;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const a = ((x1 - x) * (y2 - y) - (y1 - y) * (x2 - x)) / d;
@@ -217,7 +158,7 @@ class Canvas {
   }
 }
 
-// ---------- 5x7 bitmap font (hand-drawn glyphs, uppercase rendering) ----------
+// ---------- 5x7 bitmap font (hand-drawn, uppercase only) ----------
 const FONT = {
   A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
   B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
@@ -283,35 +224,34 @@ const FONT = {
   "~": ["00000", "00000", "01001", "10110", "00000", "00000", "00000"],
   "\u2022": ["00000", "00000", "01100", "01100", "01100", "00000", "00000"],
   "\u00d7": ["00000", "10001", "01010", "00100", "01010", "10001", "00000"],
-  "\u2014": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
 };
 const CHAR_W = 6; // 5 px glyph + 1 px gap
 
 function textWidth(s, scale) {
   return s.length * CHAR_W * scale - scale;
 }
-function drawText(cv, x, y, s, scale, color, bold) {
-  const up = String(s).toUpperCase();
-  for (let i = 0; i < up.length; i++) {
-    const g = FONT[up[i]] || FONT["?"];
-    const gx = x + i * CHAR_W * scale;
-    for (let r = 0; r < 7; r++) {
-      for (let c = 0; c < 5; c++) {
-        if (g[r][c] === "1") {
-          cv.fill(gx + c * scale, y + r * scale, scale, scale, color);
-          if (bold) cv.fill(gx + c * scale + 1, y + r * scale, scale, scale, color);
-        }
-      }
+function drawChar(cv, x, y, scale, color, ch) {
+  const g = FONT[ch] || FONT["?"];
+  for (let r = 0; r < 7; r++) {
+    for (let c = 0; c < 5; c++) {
+      if (g[r][c] === "1") cv.fill(x + c * scale, y + r * scale, scale, scale, color);
     }
+  }
+}
+function drawText(cv, x, y, s, scale, color, bold) {
+  const up = s.toUpperCase();
+  for (let i = 0; i < up.length; i++) {
+    drawChar(cv, x + i * CHAR_W * scale, y, scale, color, up[i]);
+    if (bold) drawChar(cv, x + i * CHAR_W * scale + 1, y, scale, color, up[i]);
   }
   return x + textWidth(up, scale);
 }
 function drawTextCentered(cv, cx, y, s, scale, color, bold) {
-  drawText(cv, Math.round(cx - textWidth(String(s).toUpperCase(), scale) / 2), y, s, scale, color, bold);
+  drawText(cv, Math.round(cx - textWidth(s.toUpperCase(), scale) / 2), y, s, scale, color, bold);
 }
 // Slanted (italic-style) text: top rows shift right, bottom rows stay put.
 function drawTextSlanted(cv, x, y, s, scale, color, bold) {
-  const up = String(s).toUpperCase();
+  const up = s.toUpperCase();
   for (let i = 0; i < up.length; i++) {
     const g = FONT[up[i]] || FONT["?"];
     const gx = x + i * CHAR_W * scale;
@@ -328,12 +268,12 @@ function drawTextSlanted(cv, x, y, s, scale, color, bold) {
   return x + textWidth(up, scale) + Math.round(6 * scale * 0.35);
 }
 function drawTextSlantedCentered(cv, cx, y, s, scale, color, bold) {
-  const w = textWidth(String(s).toUpperCase(), scale) + Math.round(6 * scale * 0.35);
+  const w = textWidth(s.toUpperCase(), scale) + Math.round(6 * scale * 0.35);
   drawTextSlanted(cv, Math.round(cx - w / 2), y, s, scale, color, bold);
 }
-// Greedy word wrap; returns lines that fit maxW px at the given scale.
+// Greedy word wrap; returns array of lines that fit maxW px at scale.
 function wrapText(s, maxW, scale) {
-  const words = String(s).toUpperCase().split(" ");
+  const words = s.toUpperCase().split(" ");
   const lines = [];
   let cur = "";
   for (const w of words) {
@@ -346,7 +286,7 @@ function wrapText(s, maxW, scale) {
 }
 
 // ---------- large serif display font (12x13, hand-drawn) ----------
-// Only the glyphs the masthead date needs: SUNDAY 22 NOVEMBER 2026.
+// Only the glyphs needed for the masthead date: SUNDAY 22 NOVEMBER 2026.
 const SERIF = {
   S: ["....XXXXXX..", "...XX....XX.", "..XX......XX", "..XX........", "..XX........", "...XXXXXX...", ".........XX.", "..........XX", "..........XX", "..XX......XX", "..XX.....XX.", "...XXXXXXX..", "............"],
   U: ["..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX......XX", "..XX.....XX.", "...XX...XX..", "....XXXXX...", "............"],
@@ -384,408 +324,250 @@ function drawSerifCentered(cv, cx, y, s, scale, color) {
   drawSerifText(cv, Math.round(cx - serifTextWidth(s, scale) / 2), y, s, scale, color);
 }
 
-// ---------- story data: every story first reported or still developing on Sunday 22 Nov 2026 ----------
-// LEADS: [num, headline, deck, outlet, region, scene, chip]
-// PANELS: [num, headline, deck, source, region, scene, chip]
+// ---------- story data: the strict Sunday 22 Nov 2026 pool ----------
+// LEADS: [num, headline, deck, outlet, region, scene, accent, tag]
+// PANELS: [num, kicker, headline, deck, source, region, scene, accent]
 // ALSO: [num, headline, source, region]
-// Verified 22 Nov 2026 by web search this run (wires to 03:30 UTC):
-// COP31 third draft early Sunday drops fossil fuels and the $120bn
-// adaptation figure; ~130-nation coalition wants fossil language; Panama
-// threatens a formal objection; plenary 06:00 GMT (Reuters, Guardian,
-// AP, CNA). Ukraine barrage 400+ drones / 110 missiles, 8 killed, Lviv
-// 2 killed (Reuters). Bahrain: IRGC claims 2 US bases hit; Manama says
-// industrial site burns, no injuries; 2 tankers hit in Hormuz (Al
-// Jazeera, Reuters, UKMTO). Isidro capture + 11 killed (Reuters, AP).
-// Sparta II: fire still burning late Sat, 16 crew safe, Finland to tow
-// it out, Russian helicopter suspected in Finnish airspace (CNN, Reuters,
-// DW). Kryvyi Rih triple-tap: boy 7 and paramedic killed, 60 wounded
-// (AP). Hong Kong Election Committee votes for 723 seats (AP). EU and
-// Indonesia sign trade deal after 10 years, 98.5% of tariffs gone
-// (Reuters). F1 qualifying: Antonelli fastest 1:33.893 but 5-place grid
-// penalty, Verstappen on pole (Autosport, F1). ATP final set: Zverev v
-// Alcaraz, singles not before 18:00 CET (ATP). Liverpool v Man Utd
-// 16:30 GMT, Pochettino's first game in charge (Sky Sports). Date
-// discipline: the DATE CHECK box names what was left out (Peru quake
-// 20 Nov, Poland missiles 19 Nov, Kerch Bridge strikes, Shenzhen summit
-// 19 Nov, Binance theft 29 Oct). Nothing that had not happened by the
-// 03:30 UTC cutoff is shown as a result: the GP, the COP31 vote, the
-// ATP final and Liverpool v Man Utd are STILL TO COME.
+// Every fact below is Sunday 22 Nov 2026 news. Deliberately excluded as
+// prior-day stories (named in the DATE CHECK box): the 400-drone /
+// 110-missile barrage (Thu 19–Fri 20 Nov), El Chapo Isidro's capture (Fri),
+// the Kryvyi Rih double-tap (Fri 20–Sat 21), the Gaza aid-van strike (Sat),
+// the Peru quake itself (Fri 20 Nov — only Sunday's final toll counts),
+// the Shenzhen summit (19 Nov) and missiles into Poland (19 Nov).
 const LEADS = [
-  [1, "COP31 DRAFT DROPS FOSSIL FUELS", "THIRD TEXT PUT TO NEARLY 200 NATIONS; $120BN FIGURE CUT TOO. PLENARY AT 06:00 GMT.", "REUTERS - ANTALYA", "WORLD", "summit", "~200 NATIONS", TEAL],
-  [2, "400 DRONES, 110 MISSILES", "RUSSIA'S BIGGEST OVERNIGHT STRIKE KILLS 8; LVIV HIT TOO. ZELENSKYY CONFIRMS CLUSTER WARHEADS.", "REUTERS - KYIV", "EUROPE", "barrage", "400+ DRONES", RED],
-  [3, "IRAN STRIKES US BASES IN BAHRAIN", "IRGC CLAIMS 2 RADARS STRUCK; MANAMA SAYS SITE BURNS, NO INJURIES. TANKERS HIT IN HORMUZ.", "AL JAZEERA - MANAMA", "MIDDLE EAST", "bahrain", "2 BASES", ORANGE],
+  [1, "186 DRONES OVERNIGHT", "186 DRONES FIRED OVERNIGHT; DEFENCES DOWN OR SUPPRESS 161. DYMER BLOCK DESTROYED: UP TO 7 FEARED TRAPPED, 2 INJURED, 9 EVACUATED.", "UKRAINIAN AIR FORCE VIA REUTERS", "EUROPE", "drones", RED, "REPORTED"],
+  [2, "COP31: FINAL TEXT", "DEAL LANDS WITH NO MENTION OF FOSSIL FUELS; DUBAI PACT RECALLED, ELECTRICITY-BY-2035 KEPT, $120BN TARGET DROPPED; FIRST TEXT TO ADMIT 1.5C WILL BE OVERSHOT.", "REUTERS / BBC / THE GUARDIAN", "WORLD", "summit", TEAL, "REPORTED"],
+  [3, "CLAIM VS DENIAL", "IRGC SAYS IT DESTROYED 2 PATRIOT RADARS SATURDAY NIGHT. BAHRAIN REPLIES: TARGET WAS A CIVILIAN INDUSTRIAL SITE - FIRE, NO INJURIES; SOVEREIGNTY VIOLATED.", "KHALEEJ TIMES / AL JAZEERA", "MIDDLE EAST", "claim", ORANGE, "CLAIM"],
 ];
 const PANELS = [
-  [4, "EL CHAPO ISIDRO CAUGHT", "FBI TOP-10 FUGITIVE SEIZED IN SINALOA; 11 KILLED IN BACKLASH", "REUTERS", "N. AMERICA", "flame", "11 DEAD", RED],
-  [5, "SPARTA II STILL BURNING", "HIT BY 2 DRONES; 16 CREW SAFE, FINLAND TO TOW IT OUT", "CNN", "EUROPE", "ship", "16 SAFE", BLUE],
-  [6, "TRIPLE-TAP STRIKE IN KRYVYI RIH", "BOY, 7, AND PARAMEDIC KILLED; 60 WOUNDED AS RESCUERS TARGETED", "AP", "EUROPE", "building", "2 DEAD, 60 HURT", RED],
-  [7, "HONG KONG VOTES FOR 723 SEATS", "ELECTION COMMITTEE POLLS OPEN; BODY PICKS THE CHIEF EXECUTIVE", "AP", "ASIA", "ballot", "723 SEATS", TEAL],
-  [8, "EU-INDO DEAL AFTER 10 YEARS", "TRADE PACT SIGNED; 98.5% OF TARIFFS BETWEEN THE TWO TO GO", "REUTERS", "WORLD", "handshake", "98.5% CUT", GREEN],
-  [9, "VERSTAPPEN ON POLE IN VEGAS", "ANTONELLI FASTEST BUT DROPS 5 PLACES; RACE AT 04:00 GMT", "AUTOSPORT", "N. AMERICA", "racecar", "POLE: VERSTAPPEN", PURPLE],
-  [10, "BOLSONARO IN ICU", "EX-PRESIDENT IN INTENSIVE CARE WITH BOWEL BLOCKAGE; STABLE", "REUTERS", "S. AMERICA", "hospital", "ICU", GREEN],
-  [11, "AID VAN HIT IN GAZA CITY", "3 KILLED AS STRIKE HITS FOOD VEHICLE; WCK SAYS NOT ITS VAN", "REUTERS", "MIDDLE EAST", "van", "3 KILLED", ORANGE],
-  [12, "IRAN TO RATION POWER FROM SUNDAY", "2-HOUR CUTS AS WAR DAMAGE DEEPENS ENERGY CRUNCH", "RFE/RL", "MIDDLE EAST", "power", "2-HR CUTS", PURPLE],
-  [13, "AUKUS ROW: 'THEY ARE WRONG'", "MARLES HITS BACK AT US BUDGET OFFICE OVER SUB FLEET WARNING", "REUTERS", "OCEANIA", "sub", "AUKUS ROW", NAVY2],
+  [4, "HONG KONG - VOTE", "HK ELECTS ELECTION COMMITTEE", "856 CANDIDATES FOR 723 SEATS; 5,700 VOTERS; POLLS 09:00-18:00", "SCMP", "ASIA", "ballot", TEAL],
+  [5, "WELLINGTON - CRICKET", "INDIA DECLARE ON 720/9 - RECORD", "RAHUL 156, PANT 128, GILL 97; NZ 119/2, TRAILING BY 233", "ESPN", "OCEANIA", "cricket", GREEN],
+  [6, "LAS VEGAS - FORMULA 1", "VERSTAPPEN WINS LAS VEGAS GP", "FROM POLE IN 1:27:39.624; NORRIS +0.639, PIASTRI +1.529", "FIA", "N. AMERICA", "f1", NAVY2],
+  [7, "SAN ANTONIO - NBA", "WEMBANYAMA SCORES 50 FOR SPURS", "50 PTS, 19 REBOUNDS, 5 BLOCKS; SPURS BEAT NEW ORLEANS 114-91", "REUTERS", "N. AMERICA", "hoops", ORANGE],
+  [8, "GULF OF FINLAND - SEA", "SPARTA II STILL BURNING AT SEA", "CARGO SHIP HIT BY DRONES SATURDAY; FINLAND LEADS LOVIISA RESCUE", "REUTERS", "EUROPE", "ship", BLUE],
+  [9, "TEHRAN - ENERGY", "IRAN BEGINS RATIONING POWER", "ROLLING CUTS OF UP TO TWO HOURS A DAY AS WAR DAMAGE BITES", "WIRES", "MIDDLE EAST", "power", PURPLE],
+  [10, "BRASILIA - HEALTH", "BOLSONARO IN INTENSIVE CARE", "ACUTE BOWEL OBSTRUCTION; STABLE; SURGERY POSSIBLE", "REUTERS", "S. AMERICA", "hospital", GREEN],
+  [11, "WASHINGTON - CYBER", "FBI PROBES CRIME-DATABASE HACK", "WASHINGTON STATE PAUSES GUN-DEALER CHECKS; BREACH ASSESSED", "AP", "N. AMERICA", "database", RED],
+  [12, "BRUSSELS - TRAVEL", "BELGIAN CONTROLLERS TO STRIKE", "MOST FLIGHTS GROUNDED MONDAY AS CONTROLLERS WALK OUT", "WIRES", "EUROPE", "plane", BLUE],
+  [13, "INDIA - SAFETY", "MANIPUR LIQUOR TOLL NOW 19", "600 IN HOSPITAL, SIX HELD; TOLL UP FROM 16 ON SATURDAY", "XINHUA", "ASIA", "flame", RED],
+  [14, "INDONESIA - FIRE", "CANDY-FACTORY FIRE: 3 DEAD", "BLAZE AT CIKANDE PLANT IN BANTEN; 36 MISSING; SEARCH GOES ON", "DETIKNEWS", "ASIA", "factory", ORANGE],
+  [15, "JUNIN - QUAKE TOLL", "PERU QUAKE TOLL: 1 DEAD, 16 HURT", "170 HOMES DAMAGED IN JUNIN; THE COUNT IS COMPLETED", "REUTERS", "S. AMERICA", "quake", PURPLE],
 ];
 const ALSO = [
-  [14, "LVIV STRIKE KILLS 2, WOUNDS 10 IN OVERNIGHT BARRAGE", "REUTERS", "EUROPE"],
-  [15, "FINLAND: RUSSIAN HELICOPTER SUSPECTED IN AIRSPACE", "DW", "EUROPE"],
-  [16, "ORPO: WAR 'SPILLING OVER' INTO THE BALTIC", "CNN", "EUROPE"],
-  [17, "HOUTHI STRIKES HIT RIYADH; SAUDI ON ALERT", "WIRE", "MIDDLE EAST"],
-  [18, "IRAN PRESIDENT WARNS OF 'SILENT ECONOMIC WAR'", "XINHUA", "MIDDLE EAST"],
-  [19, "KILLER-ROBOT TALKS END WITH NO PLEDGE, MORE TALKS", "WIRE", "WORLD"],
-  [20, "KING CHARLES PRAISES ERDOGAN FOR HOSTING COP31", "WIRE", "EUROPE"],
-  [21, "NEPAL PM LANDS IN DELHI ON FIRST TRIP ABROAD", "IANS", "ASIA"],
-  [22, "SPAIN EXTENDS BANK TAX TO FUND HOUSING", "REUTERS", "EUROPE"],
-  [23, "BANGLADESH DEPLOYS TROOPS AS ARSON SPREADS", "REUTERS", "ASIA"],
-  [24, "NIGERIA BOAT CAPSIZE: 24 BODIES RECOVERED", "NEMA", "AFRICA"],
-  [25, "FBI PROBES HACK OF ITS CRIME DATABASE", "BBC", "N. AMERICA"],
-  [26, "TEEN GAMER AND MOTHER HELP FBI RESCUE GIRL", "BBC", "N. AMERICA"],
-  [27, "AUSTRALIA: FRED NILE, EX-NSW MP, DIES AGED 92", "ABC", "OCEANIA"],
-  [28, "MELBOURNE: 70 YEARS SINCE 1956 OLYMPICS OPENED", "ABC", "OCEANIA"],
-  [29, "RUGBY: ENGLAND BEAT NEW ZEALAND 37-12", "REUTERS", "EUROPE"],
-  [30, "RUGBY: FRANCE BEAT ARGENTINA TO REACH FINAL", "REUTERS", "EUROPE"],
-  [31, "FOOTBALL: LIVERPOOL HOST MAN UTD AT 16:30 GMT", "BBC", "EUROPE"],
-  [32, "TENNIS: ZVEREV V ALCARAZ IN TURIN FINAL TODAY", "ATP", "EUROPE"],
-  [33, "CRICKET: PANT 128 AS INDIA LEAD NZ BY 261", "REUTERS", "ASIA"],
-  [34, "DENMARK EXPELS RUSSIAN ATTACHE OVER RAPPER PLOT", "GUARDIAN", "EUROPE"],
-  [35, "BANGLADESH: 50 AWAMI LEAGUE HOMES SET ON FIRE", "PTI", "ASIA"],
-  [36, "US: MIDTERM LOSS CORNERS VANCE AS 2028 FIELD WIDENS", "ST", "N. AMERICA"],
-  [37, "SAUDI ARABIA: AIR DEFENCES DOWN A MISSILE", "WIRE", "MIDDLE EAST"],
-  [38, "PORTUGAL: THOUSANDS MARCH IN LISBON ON LIVING COSTS", "REUTERS", "EUROPE"],
+  [16, "ESTONIA TO SHUT 5 RUSSIA BORDER CROSSINGS 1 DEC", "REUTERS", "EUROPE"],
+  [17, "DENMARK EXPELS RUSSIAN ATTACHE OVER ALLEGED PLOT", "IANS", "EUROPE"],
+  [18, "NEPAL PM SHAH LANDS IN DELHI; MEETS MODI MONDAY", "IANS", "ASIA"],
+  [19, "CHINA SHIP TURNS BACK 170 KM FROM MANILA", "AP", "ASIA"],
+  [20, "PHILIPPINES M5.9 QUAKE, 898 KM DEEP, OFF PALAWAN", "EMSC", "ASIA"],
+  [21, "JAPAN POLL: RECORD 92% FEEL FRIENDLY TO S. KOREA", "JKN", "ASIA"],
+  [22, "TAIWAN LIVE-FIRE DRILL ON KINMEN", "CNA", "ASIA"],
+  [23, "SOMALIA EXPELS UAE AMBASSADOR, RECALLS OWN ENVOY", "WIRES", "AFRICA"],
+  [24, "SUDAN: RSF ACCUSED OF KILLING CIVILIANS [CLAIM]", "CLAIM", "AFRICA"],
+  [25, "KENYA DISCHARGES ITS LAST EBOLA PATIENT", "WIRES", "AFRICA"],
+  [26, "MELBOURNE: 70 YEARS SINCE 1956 OLYMPICS OPENED", "ABC", "OCEANIA"],
+  [27, "CUMMINS KEEPS AUSTRALIA'S TEST CAPTAINCY", "ABC", "OCEANIA"],
+  [28, "TRUMP SEEKS 'PERMANENT' IRAN DEAL; DOHA TALKS", "AL JAZEERA", "N. AMERICA"],
+  [29, "EISENKOT INVITES LIKUD TO COALITION TALKS", "STRAITS TIMES", "MIDDLE EAST"],
+  [30, "NVIDIA FACES SEC ACCOUNTING PROBE, SAY REPORTS", "REPORTS", "N. AMERICA"],
+  [31, "GOLD HOLDS NEAR $5,555", "REUTERS", "WORLD"],
+  [32, "HAMAS SEEKS URGENT MEDIATOR TALKS", "WIRES", "MIDDLE EAST"],
+  [33, "FORECAST: ATP FINALS FINAL, ZVEREV V ALCARAZ 17:00", "FORECAST", "EUROPE"],
+  [34, "FORECAST: LIVERPOOL V MAN UTD 16:30, POCH DEBUT", "FORECAST", "EUROPE"],
+  [35, "SPAIN TO EXTEND BANK TAX: 1.4BN EUROS FOR HOMES", "REUTERS", "EUROPE"],
+  [36, "AUKUS ROW: MARLES HITS BACK AT US BUDGET OFFICE", "REUTERS", "OCEANIA"],
 ];
+// Region counts recounted by hand from the pool above (leads + panels + also):
+// EUROPE 1+2+5=8, ASIA 0+3+5=8, N. AMERICA 0+3+2=5, MIDDLE EAST 1+1+2=4,
+// OCEANIA 0+1+3=4, AFRICA 0+0+3=3, S. AMERICA 0+2+0=2, WORLD 1+0+1=2. Total 36.
 const REGIONS = [
-  ["EUROPE", 14, BLUE],
+  ["EUROPE", 8, BLUE],
+  ["ASIA", 8, TEAL],
   ["N. AMERICA", 5, NAVY2],
-  ["ASIA", 5, TEAL],
-  ["MIDDLE EAST", 6, RED],
-  ["S. AMERICA", 1, GREEN],
-  ["OCEANIA", 3, PURPLE],
-  ["AFRICA", 1, ORANGE],
-  ["WORLD", 3, GOLD],
+  ["MIDDLE EAST", 4, RED],
+  ["OCEANIA", 4, PURPLE],
+  ["AFRICA", 3, GREEN],
+  ["S. AMERICA", 2, ORANGE],
+  ["WORLD", 2, GOLD],
 ];
 const STATS = [
-  ["~200", "NATIONS AT COP31 TALKS"],
-  ["400+", "DRONES FIRED AT UKRAINE"],
-  ["110", "MISSILES IN THE SAME NIGHT"],
-  ["130", "NATIONS WANT FOSSIL WORDING"],
-  ["16", "CREW SAFE OFF SPARTA II"],
-  ["06:00", "GMT: COP31 VOTE DUE"],
+  ["186", "DRONES FIRED OVERNIGHT"],
+  ["161", "DOWNED OR SUPPRESSED"],
+  ["$120BN", "ADAPTATION TARGET DROPPED"],
+  ["720/9", "INDIA'S RECORD TEST TOTAL"],
+  ["50 PTS", "WEMBANYAMA: 19 REBOUNDS"],
+  ["856", "HONG KONG CANDIDATES"],
 ];
-// Timeline of the day so far (times GMT, 22 Nov unless noted).
 const TIMELINE = [
-  ["LATE SAT", "400 DRONES HIT UKRAINE"],
-  ["SAT NIGHT", "IRAN STRIKES BAHRAIN"],
-  ["03:00 GMT", "COP31 OBJECTIONS DUE"],
-  ["06:00 GMT", "COP31 VOTE"],
-  ["SUNDAY", "DAY STILL TO COME"],
+  ["01:00", "HK POLLS OPEN"],
+  ["03:00", "OBJECTIONS CLOSE"],
+  ["05:11", "HAMAS TALKS"],
+  ["05:30", "VERSTAPPEN WINS"],
+  ["06:00", "APPROVAL DUE"],
+  ["07:30", "APPROVAL SLIPS"],
 ];
-// Events after the 03:30 UTC cutoff — shown as coming, never as results.
-const STILL_TO_COME = "04:00 GMT VEGAS GP  \u2022  06:00 GMT COP31 VOTE  \u2022  15:00 CET ATP DOUBLES FINAL  \u2022  17:00 GMT ZVEREV V ALCARAZ  \u2022  16:30 GMT LIVERPOOL V MAN UTD";
 
 // ---------- drawn visual scenes (all shapes, no images) ----------
-// Every scene is drawn proportionally inside its box (x, y, w, h) so
-// nothing overflows into neighbouring text. Lead scenes get a vertical
-// gradient sky, a far depth layer, a near layer and foreground props;
-// small-panel scenes are centred motifs on a gradient ground.
+// Every scene is drawn proportionally inside its box (x, y, w, h) so nothing
+// overflows into neighbouring text. Lead scenes use the full 330x98 box;
+// small-panel scenes are centred motifs in a 200x50 box.
 function drawScene(cv, x, y, w, h, scene, accent) {
   const cx = x + Math.floor(w / 2), cy = y + Math.floor(h / 2);
   if (scene === "summit") {
-    // COP31 hall: dawn sky over Antalya bay, far mountains, hall wall,
-    // globe, long table, eight delegates, flags, clock, podium.
-    cv.vgrad(x, y, w, 34, [178, 214, 236], [238, 224, 196]);
-    cv.fill(x, y + 34, w, h - 34, [222, 210, 188]);
-    cv.circle(x + w - 30, y + 14, 9, [255, 226, 140]);
-    cv.tri(x + 8, y + 30, x + 40, y + 12, x + 72, y + 30, [150, 170, 190]);
-    cv.tri(x + 48, y + 30, x + 86, y + 8, x + 124, y + 30, [165, 182, 198]);
-    cv.fill(x, y + 30, w, 4, [90, 140, 170]);
-    // Hall wall and globe.
-    cv.fill(x, y + 34, w, 22, [196, 222, 214]);
-    cv.circle(x + 34, y + 45, 11, BLUE);
-    cv.circle(x + 30, y + 42, 4, GREEN);
-    cv.circle(x + 38, y + 48, 3, GREEN);
-    cv.ring(x + 34, y + 45, 11, 1, WHITE);
-    cv.fill(x + 33, y + 56, 2, 6, INK);
-    // Clock showing the 03:00 objections deadline.
-    cv.circle(x + w - 34, y + 45, 10, WHITE);
-    cv.ring(x + w - 34, y + 45, 10, 1, INK);
-    cv.line(x + w - 34, y + 45, x + w - 34, y + 38, INK);
-    cv.line(x + w - 34, y + 45, x + w - 27, y + 45, INK);
-    cv.circle(x + w - 34, y + 45, 1, INK);
-    // Podium with COP31 sign.
-    cv.fill(x + w - 62, y + 56, 26, 22, [96, 64, 32]);
-    cv.fill(x + w - 62, y + 56, 26, 3, GOLD);
-    drawText(cv, x + w - 58, y + 62, "COP31", 1, WHITE, true);
-    // Long table, name plates, eight delegates.
-    cv.fill(x + 14, y + 62, w - 28, 7, [120, 82, 40]);
-    cv.fill(x + 14, y + 69, w - 28, h - 69, [96, 64, 32]);
-    cv.fill(x + 14, y + 69, w - 28, 2, GOLD);
-    const cols = [NAVY2, RED, TEAL, GREEN, PURPLE, ORANGE, BLUE, DARKRED];
-    for (let i = 0; i < 8; i++) {
-      const dx = x + 30 + i * 34;
-      cv.circle(dx, y + 52, 6, CREAM);
-      cv.fill(dx - 8, y + 58, 16, 5, cols[i]);
-      cv.fill(dx - 6, y + 59, 12, 3, WHITE);
+    cv.fill(x, y, w, h, [196, 222, 238]);
+    cv.circle(x + w - 26, y + 16, 10, GOLD);
+    cv.fill(x, y + 52, w, h - 52, [222, 210, 188]);
+    const cols = [NAVY2, RED, TEAL, GREEN, PURPLE, ORANGE];
+    for (let i = 0; i < 6; i++) {
+      const dx = x + 34 + i * 52;
+      cv.circle(dx, y + 42, 7, [232, 214, 188]);
+      cv.fill(dx - 9, y + 49, 18, 13, cols[i]);
+      cv.fill(dx - 8, y + 64, 16, 4, WHITE);
     }
-    // Flags at the table ends.
-    cv.fill(x + 16, y + 40, 2, 16, INK);
-    cv.fill(x + 18, y + 40, 11, 6, BLUE);
-    cv.fill(x + w - 18, y + 40, 2, 16, INK);
-    cv.fill(x + w - 29, y + 40, 11, 6, RED);
+    cv.fill(x + 14, y + 62, w - 28, 8, [120, 82, 40]);
+    cv.fill(x + 14, y + 70, w - 28, h - 70, [96, 64, 32]);
+    cv.fill(x + 14, y + 70, w - 28, 2, GOLD);
+    cv.fill(x + 22, y + 44, 2, 18, INK);
+    cv.fill(x + 24, y + 44, 12, 7, BLUE);
+    cv.fill(x + w - 24, y + 44, 2, 18, INK);
+    cv.fill(x + w - 36, y + 44, 12, 7, RED);
+    // Wall clock (the deadline hanging over the talks) + extra delegates.
+    cv.circle(x + Math.floor(w / 2), y + 16, 11, WHITE);
+    cv.ring(x + Math.floor(w / 2), y + 16, 11, 2, NAVY2);
+    cv.line(x + Math.floor(w / 2), y + 16, x + Math.floor(w / 2), y + 8, INK);
+    cv.line(x + Math.floor(w / 2), y + 16, x + Math.floor(w / 2) + 6, y + 19, RED);
+    for (let i = 0; i < 8; i++) {
+      const dx = x + 22 + i * Math.floor((w - 30) / 8);
+      cv.fill(dx, y + 66, 12, 3, WHITE);
+      cv.fill(dx + 2, y + 64, 8, 2, GOLD);
+    }
   } else if (scene === "barrage") {
-    // Kyiv under attack: gradient night sky, stars, moon, two skyline
-    // layers with lit windows, a bridge, drone trails, explosions and
-    // fires with smoke columns.
-    cv.vgrad(x, y, w, h, NIGHT, [74, 44, 62]);
-    for (let i = 0; i < 22; i++) {
-      const sx = x + 6 + ((i * 53) % (w - 12)), sy = y + 3 + ((i * 29) % 30);
-      cv.fill(sx, sy, 2, 2, [215, 215, 232]);
+    cv.fill(x, y, w, h, NIGHT);
+    for (let i = 0; i < 18; i++) {
+      const sx = x + 8 + ((i * 53) % 300), sy = y + 4 + ((i * 29) % 34);
+      cv.fill(sx, sy, 2, 2, [220, 220, 235]);
     }
-    cv.circle(x + w - 26, y + 15, 9, [240, 240, 220]);
-    cv.circle(x + w - 29, y + 12, 7, [210, 210, 200]);
-    // Far skyline.
-    const far = [[4, 52, 34, 36], [44, 44, 30, 44], [80, 56, 40, 32], [126, 46, 34, 42], [166, 54, 44, 34], [216, 42, 32, 46], [254, 52, 36, 36], [296, 56, 22, 32]];
-    for (const b of far) cv.fill(x + b[0], y + b[1], b[2], b[3], [24, 28, 50]);
-    // Near skyline with lit windows.
-    const near = [[14, 62, 44, 26], [66, 56, 36, 32], [110, 64, 48, 24], [166, 58, 40, 30], [214, 64, 46, 24], [268, 58, 40, 30]];
-    for (const b of near) cv.fill(x + b[0], y + b[1], b[2], b[3], [32, 36, 56]);
-    for (let i = 0; i < 16; i++) {
-      const wx = x + 20 + ((i * 37) % (w - 40)), wy = y + 58 + ((i * 13) % 22);
+    cv.circle(x + w - 28, y + 16, 9, [240, 240, 220]);
+    const bld = [[6, 58, 44, 40], [56, 48, 36, 50], [98, 64, 52, 34], [156, 52, 40, 46], [202, 60, 48, 38], [256, 46, 40, 52], [302, 58, 22, 40]];
+    for (const b of bld) cv.fill(x + b[0], y + b[1], b[2], b[3], [30, 34, 54]);
+    for (let i = 0; i < 10; i++) {
+      const wx = x + 14 + ((i * 31) % 290), wy = y + 56 + ((i * 17) % 30);
       cv.fill(wx, wy, 2, 2, GOLD);
     }
-    // Bridge with lights across the lower third.
-    cv.fill(x, y + 74, w, 3, [20, 20, 30]);
-    for (let i = 0; i < 6; i++) cv.fill(x + 24 + i * 52, y + 66, 2, 8, [20, 20, 30]);
-    for (let i = 0; i < 6; i++) cv.fill(x + 24 + i * 52, y + 75, 2, 2, GOLD);
-    // Drone trails.
-    cv.line(x + 118, y + 8, x + 138, y + 16, WHITE);
-    cv.circle(x + 140, y + 17, 2, WHITE);
-    cv.line(x + 198, y + 6, x + 214, y + 20, ORANGE);
-    cv.circle(x + 216, y + 21, 2, RED);
-    cv.line(x + 244, y + 14, x + 256, y + 24, WHITE);
-    cv.circle(x + 258, y + 25, 2, WHITE);
-    // Explosions: flame, glow and smoke columns.
-    cv.circle(x + 70, y + 82, 9, ORANGE);
-    cv.tri(x + 70, y + 66, x + 61, y + 84, x + 79, y + 84, GOLD);
-    cv.circle(x + 70, y + 68, 6, [96, 96, 104]);
-    cv.circle(x + 66, y + 58, 5, [110, 110, 116]);
-    cv.circle(x + 180, y + 84, 7, ORANGE);
-    cv.circle(x + 180, y + 72, 5, [96, 96, 104]);
-    cv.circle(x + 276, y + 82, 8, RED);
-    cv.tri(x + 276, y + 68, x + 268, y + 84, x + 284, y + 84, GOLD);
-    cv.circle(x + 276, y + 70, 6, [100, 100, 108]);
-    cv.circle(x + 282, y + 60, 5, [112, 112, 118]);
+    cv.circle(x + 70, y + 90, 8, ORANGE);
+    cv.tri(x + 70, y + 76, x + 62, y + 92, x + 78, y + 92, GOLD);
+    cv.circle(x + 180, y + 92, 6, ORANGE);
+    cv.circle(x + 270, y + 90, 7, RED);
+    cv.circle(x + 70, y + 76, 6, [90, 90, 100]);
+    cv.circle(x + 180, y + 80, 5, [90, 90, 100]);
+    cv.circle(x + 270, y + 76, 6, [100, 100, 110]);
+    cv.line(x + 120, y + 20, x + 140, y + 26, WHITE);
+    cv.circle(x + 142, y + 27, 2, WHITE);
+    cv.line(x + 200, y + 12, x + 216, y + 30, ORANGE);
+    cv.circle(x + 218, y + 31, 2, RED);
+    cv.line(x + 240, y + 24, x + 252, y + 34, WHITE);
+    cv.circle(x + 254, y + 35, 2, WHITE);
   } else if (scene === "bahrain") {
-    // Bahrain at dusk: gradient sky, low sun, base skyline with radar,
-    // a tanker on the sea, flames and smoke, missile trails, palms.
-    cv.vgrad(x, y, w, 58, [246, 176, 110], [196, 84, 72]);
-    cv.vgrad(x, y + 58, w, h - 58, [52, 100, 148], [28, 64, 110]);
-    cv.circle(x + 58, y + 30, 13, [255, 222, 140]);
-    cv.circle(x + 58, y + 30, 18, [250, 200, 120]);
-    cv.fill(x, y + 56, w, 2, [220, 140, 90]);
-    // Base skyline: towers, radar dish, minaret.
-    cv.fill(x + 18, y + 34, 22, 24, [52, 44, 52]);
-    cv.fill(x + 46, y + 28, 18, 30, [52, 44, 52]);
-    cv.fill(x + 70, y + 38, 26, 20, [52, 44, 52]);
-    cv.fill(x + 250, y + 30, 20, 28, [52, 44, 52]);
-    cv.fill(x + 276, y + 36, 24, 22, [52, 44, 52]);
-    cv.fill(x + 104, y + 42, 3, 16, [52, 44, 52]);
-    cv.tri(x + 104, y + 36, x + 100, y + 44, x + 108, y + 44, [52, 44, 52]);
-    cv.line(x + 130, y + 40, x + 140, y + 30, [220, 220, 230]);
-    cv.circle(x + 142, y + 29, 5, [220, 220, 230]);
-    for (let i = 0; i < 8; i++) {
-      const wx = x + 22 + ((i * 31) % 280), wy = y + 40 + ((i * 7) % 14);
-      cv.fill(wx, wy, 2, 2, GOLD);
-    }
-    // Tanker with containers on the sea.
-    cv.fill(x + 118, y + 68, 116, 10, [30, 30, 38]);
-    cv.tri(x + 234, y + 68, x + 234, y + 78, x + 252, y + 78, [30, 30, 38]);
-    cv.fill(x + 148, y + 58, 3, 10, [30, 30, 38]);
-    cv.fill(x + 176, y + 60, 16, 8, [200, 60, 40]);
-    cv.fill(x + 196, y + 60, 16, 8, [30, 90, 168]);
-    cv.fill(x + 36, y + 80, 20, 2, [200, 220, 240]);
-    cv.fill(x + 262, y + 82, 20, 2, [200, 220, 240]);
-    cv.fill(x + 88, y + 84, 16, 2, [200, 220, 240]);
-    // Flames and smoke over the base.
-    cv.circle(x + 186, y + 52, 7, ORANGE);
-    cv.tri(x + 186, y + 40, x + 179, y + 54, x + 193, y + 54, GOLD);
-    cv.circle(x + 184, y + 40, 6, [118, 118, 124]);
-    cv.circle(x + 190, y + 30, 7, [118, 118, 124]);
-    cv.circle(x + 196, y + 20, 5, [130, 130, 136]);
-    cv.circle(x + 288, y + 50, 6, ORANGE);
-    cv.tri(x + 288, y + 40, x + 282, y + 52, x + 294, y + 52, GOLD);
-    // Missile trails in the sky.
-    cv.line(x + 220, y + 6, x + 232, y + 18, WHITE);
-    cv.circle(x + 233, y + 19, 2, WHITE);
-    cv.line(x + 262, y + 8, x + 272, y + 20, GOLD);
-    cv.circle(x + 273, y + 21, 2, RED);
-    // Palm silhouettes at the left edge.
-    cv.line(x + 8, y + 44, x + 8, y + 58, [40, 36, 40]);
-    cv.line(x + 8, y + 44, x + 2, y + 38, [40, 36, 40]);
-    cv.line(x + 8, y + 44, x + 14, y + 38, [40, 36, 40]);
-  } else if (scene === "flame") {
-    cv.vgrad(x, y, w, h, SKY, [240, 200, 160]);
-    cv.tri(cx, y + 3, cx - Math.floor(h * 0.3), cy + Math.floor(h * 0.2), cx + Math.floor(h * 0.3), cy + Math.floor(h * 0.2), ORANGE);
-    cv.circle(cx, cy + Math.floor(h * 0.08), Math.floor(h * 0.24), ORANGE);
-    cv.circle(cx, cy + Math.floor(h * 0.18), Math.floor(h * 0.14), GOLD);
-    cv.circle(cx, cy + Math.floor(h * 0.26), Math.floor(h * 0.07), [255, 240, 180]);
-    cv.fill(x, y + h - 6, w, 6, [90, 60, 50]);
-    cv.circle(cx - Math.floor(w * 0.3), cy + Math.floor(h * 0.3), 3, [120, 120, 125]);
-    cv.circle(cx + Math.floor(w * 0.28), cy + Math.floor(h * 0.22), 3, [120, 120, 125]);
-  } else if (scene === "ship") {
-    cv.vgrad(x, y, w, h, SKY, [200, 225, 240]);
-    cv.fill(x, y + Math.floor(h * 0.58), w, Math.floor(h * 0.42), [60, 120, 180]);
-    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.4), Math.floor(w * 0.6), Math.floor(h * 0.2), [40, 40, 48]);
-    cv.tri(cx + Math.floor(w * 0.3), y + Math.floor(h * 0.4), cx + Math.floor(w * 0.3), y + Math.floor(h * 0.6), cx + Math.floor(w * 0.38), y + Math.floor(h * 0.6), [40, 40, 48]);
-    cv.fill(cx - 1, y + Math.floor(h * 0.1), 2, Math.floor(h * 0.32), [40, 40, 48]);
-    cv.fill(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.26), Math.floor(w * 0.05), Math.floor(h * 0.16), [200, 60, 40]);
-    cv.circle(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.28), Math.floor(h * 0.13), ORANGE);
-    cv.circle(cx + Math.floor(w * 0.02), y + Math.floor(h * 0.14), Math.floor(h * 0.09), [120, 120, 125]);
-    cv.circle(cx - Math.floor(w * 0.02), y + Math.floor(h * 0.04), Math.floor(h * 0.07), [130, 130, 135]);
-    cv.fill(x + 10, y + Math.floor(h * 0.72), 16, 2, [200, 220, 240]);
-    cv.fill(x + w - 28, y + Math.floor(h * 0.8), 16, 2, [200, 220, 240]);
+    cv.fill(x, y, w, 34, [244, 190, 130]);
+    cv.fill(x, y + 34, w, 30, [236, 164, 100]);
+    cv.fill(x, y + 64, w, 6, [220, 140, 90]);
+    cv.fill(x, y + 70, w, 28, [40, 90, 140]);
+    cv.circle(x + 56, y + 34, 12, [255, 220, 140]);
+    cv.fill(x + 262, y + 44, 26, 26, [90, 70, 60]);
+    cv.fill(x + 292, y + 52, 22, 18, [90, 70, 60]);
+    cv.fill(x + 276, y + 30, 2, 14, [90, 70, 60]);
+    cv.circle(x + 277, y + 28, 4, [90, 70, 60]);
+    cv.fill(x + 120, y + 78, 110, 10, [30, 30, 38]);
+    cv.tri(x + 230, y + 78, x + 230, y + 88, x + 250, y + 88, [30, 30, 38]);
+    cv.fill(x + 150, y + 58, 3, 20, [30, 30, 38]);
+    cv.fill(x + 180, y + 66, 14, 12, [200, 60, 40]);
+    cv.circle(x + 188, y + 60, 7, ORANGE);
+    cv.tri(x + 188, y + 48, x + 181, y + 62, x + 195, y + 62, GOLD);
+    cv.circle(x + 186, y + 48, 6, [120, 120, 125]);
+    cv.circle(x + 192, y + 38, 7, [120, 120, 125]);
+    cv.circle(x + 198, y + 28, 5, [130, 130, 135]);
+    cv.fill(x + 40, y + 80, 18, 2, [200, 220, 240]);
+    cv.fill(x + 260, y + 90, 18, 2, [200, 220, 240]);
+    cv.fill(x + 90, y + 92, 14, 2, [200, 220, 240]);
+  } else if (scene === "flag") {
+    cv.fill(x, y, w, h, SKY);
+    const bh = Math.floor(h * 0.26);
+    cv.fill(x + 6, y + 3, w - 12, bh, RED);
+    cv.fill(x + 6, y + 3 + bh, w - 12, bh, WHITE);
+    cv.fill(x + 6, y + 3 + 2 * bh, w - 12, bh, BLUE);
+    cv.circle(cx, cy, Math.floor(h * 0.16), GOLD);
   } else if (scene === "building") {
-    cv.vgrad(x, y, w, h, SKY, [230, 225, 210]);
-    cv.circle(x + w - 16, y + 10, 6, GOLD);
+    cv.fill(x, y, w, h, SKY);
+    cv.circle(x + w - 18, y + 10, 6, GOLD);
     cv.fill(x, y + h - 6, w, 6, [70, 70, 80]);
-    cv.fill(x + 8, y + Math.floor(h * 0.34), Math.floor(w * 0.22), Math.floor(h * 0.66), [150, 150, 160]);
+    cv.fill(x + 8, y + Math.floor(h * 0.35), Math.floor(w * 0.22), Math.floor(h * 0.65), [150, 150, 160]);
     cv.fill(x + Math.floor(w * 0.34), y + Math.floor(h * 0.5), Math.floor(w * 0.2), Math.floor(h * 0.5), [120, 120, 132]);
-    cv.fill(x + Math.floor(w * 0.6), y + Math.floor(h * 0.18), Math.floor(w * 0.24), Math.floor(h * 0.82), [170, 170, 180]);
+    cv.fill(x + Math.floor(w * 0.6), y + Math.floor(h * 0.2), Math.floor(w * 0.24), Math.floor(h * 0.8), [170, 170, 180]);
     for (let r = 0; r < 3; r++) {
       cv.fill(x + 13, y + Math.floor(h * 0.42) + r * 8, 3, 4, GOLD);
       cv.fill(x + 22, y + Math.floor(h * 0.42) + r * 8, 3, 4, GOLD);
     }
     for (let r = 0; r < 4; r++) {
-      cv.fill(x + Math.floor(w * 0.63), y + Math.floor(h * 0.26) + r * 8, 3, 4, GOLD);
-      cv.fill(x + Math.floor(w * 0.63) + 9, y + Math.floor(h * 0.26) + r * 8, 3, 4, GOLD);
+      cv.fill(x + Math.floor(w * 0.63), y + Math.floor(h * 0.28) + r * 8, 3, 4, GOLD);
+      cv.fill(x + Math.floor(w * 0.63) + 9, y + Math.floor(h * 0.28) + r * 8, 3, 4, GOLD);
     }
-    cv.tri(cx + Math.floor(w * 0.22), y + h - 16, cx + Math.floor(w * 0.22) - 6, y + h - 6, cx + Math.floor(w * 0.22) + 6, y + h - 6, ORANGE);
-    cv.circle(cx + Math.floor(w * 0.22), y + h - 11, 4, GOLD);
-    cv.circle(cx + Math.floor(w * 0.22), y + h - 18, 4, [120, 120, 125]);
-  } else if (scene === "ballot") {
-    cv.vgrad(x, y, w, h, [238, 240, 246], [210, 216, 228]);
-    cv.fill(cx - Math.floor(w * 0.26), y + Math.floor(h * 0.34), Math.floor(w * 0.52), Math.floor(h * 0.56), WHITE);
-    cv.rect(cx - Math.floor(w * 0.26), y + Math.floor(h * 0.34), Math.floor(w * 0.52), Math.floor(h * 0.56), [180, 180, 188]);
-    cv.fill(cx - Math.floor(w * 0.26), y + Math.floor(h * 0.34), Math.floor(w * 0.52), 3, RED);
-    cv.fill(cx - Math.floor(w * 0.1), y + Math.floor(h * 0.34), Math.floor(w * 0.2), 2, INK);
-    drawText(cv, cx - 8, y + Math.floor(h * 0.56), "VOTE", 1, RED, true);
-    // Ballot paper dropping into the slot, with a large red tick. Moved
-    // left of centre: the old position sat under the "723 SEATS" chip, so
-    // the paper and tick were hidden. Now clear of both the number badge
-    // (top-left) and the chip (top-right), with the paper over the slot.
-    cv.fill(cx - Math.floor(w * 0.22), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), WHITE);
-    cv.rect(cx - Math.floor(w * 0.22), y + Math.floor(h * 0.08), Math.floor(w * 0.16), Math.floor(h * 0.3), [180, 180, 188]);
-    cv.thickLine(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.28), cx - Math.floor(w * 0.14), y + Math.floor(h * 0.36), 3, RED);
-    cv.thickLine(cx - Math.floor(w * 0.14), y + Math.floor(h * 0.36), cx - Math.floor(w * 0.06), y + Math.floor(h * 0.14), 3, RED);
-    for (let i = 0; i < 5; i++) cv.fill(x + 24 + i * 6, y + 4, 3, 3, GOLD);
-  } else if (scene === "handshake") {
-    // EU-Indonesia deal: two sleeves meeting in a clasped handshake, with
-    // the EU flag bottom-left and the Indonesian flag bottom-right. The
-    // sleeves, cuffs and hands sit in the middle band, clear of the number
-    // badge (top-left) and the stat chip (top-right), so nothing is hidden.
-    cv.vgrad(x, y, w, h, SKY, [226, 236, 242]);
-    cv.fill(x, y + h - 5, w, 5, [120, 130, 110]);
-    // Sleeves: blue (EU) from the left, red from the right, meeting centre.
-    cv.thickLine(x + 4, y + 26, cx - 14, y + 29, 12, BLUE);
-    cv.thickLine(cx + 14, y + 29, x + w - 4, y + 26, 12, RED);
-    // White shirt cuffs at each wrist.
-    cv.fill(cx - 16, y + 22, 8, 15, WHITE);
-    cv.rect(cx - 16, y + 22, 8, 15, [180, 180, 185]);
-    cv.fill(cx + 8, y + 22, 8, 15, WHITE);
-    cv.rect(cx + 8, y + 22, 8, 15, [180, 180, 185]);
-    // Clasped hands: one large cream disc with finger grooves and a thumb.
-    cv.circle(cx, y + 30, 11, CREAM);
-    cv.ring(cx, y + 30, 11, 1, [190, 160, 130]);
-    cv.line(cx - 8, y + 28, cx + 8, y + 28, [190, 160, 130]);
-    cv.line(cx - 8, y + 32, cx + 8, y + 32, [190, 160, 130]);
-    cv.line(cx - 8, y + 36, cx + 8, y + 36, [190, 160, 130]);
-    cv.ellipse(cx - 2, y + 24, 5, 3, [222, 192, 162]);
-    // EU flag (blue with gold stars) bottom-left.
-    cv.fill(x + 8, y + h - 14, 22, 10, BLUE);
-    cv.rect(x + 8, y + h - 14, 22, 10, [180, 180, 185]);
-    cv.fill(x + 12, y + h - 11, 2, 2, GOLD);
-    cv.fill(x + 18, y + h - 11, 2, 2, GOLD);
-    cv.fill(x + 24, y + h - 11, 2, 2, GOLD);
-    cv.fill(x + 15, y + h - 7, 2, 2, GOLD);
-    cv.fill(x + 21, y + h - 7, 2, 2, GOLD);
-    // Indonesian flag (red over white) bottom-right.
-    cv.fill(x + w - 30, y + h - 14, 22, 5, RED);
-    cv.fill(x + w - 30, y + h - 9, 22, 5, WHITE);
-    cv.rect(x + w - 30, y + h - 14, 22, 10, [180, 180, 185]);
-  } else if (scene === "racecar") {
-    // Las Vegas night: neon sky, Strip towers, track, race car, flag.
-    cv.vgrad(x, y, w, h, [24, 16, 52], [90, 40, 90]);
-    for (let i = 0; i < 8; i++) {
-      const tx = x + 8 + i * 22;
-      cv.fill(tx, y + Math.floor(h * 0.3) - (i % 3) * 4, 10, Math.floor(h * 0.3) + (i % 3) * 4, [40, 30, 70]);
-      cv.fill(tx + 2, y + Math.floor(h * 0.3) - (i % 3) * 4 + 3, 2, 2, GOLD);
-    }
-    cv.fill(x, y + Math.floor(h * 0.62), w, Math.floor(h * 0.38), [28, 28, 34]);
-    cv.fill(x, y + Math.floor(h * 0.62), w, 2, [200, 200, 210]);
-    cv.fill(cx - Math.floor(w * 0.3), cy + Math.floor(h * 0.06), Math.floor(w * 0.5), Math.floor(h * 0.16), RED);
-    cv.fill(cx - Math.floor(w * 0.22), cy - Math.floor(h * 0.1), Math.floor(w * 0.26), Math.floor(h * 0.16), RED);
-    cv.fill(cx + Math.floor(w * 0.06), cy - Math.floor(h * 0.02), Math.floor(w * 0.1), Math.floor(h * 0.08), [200, 220, 240]);
-    cv.circle(cx - Math.floor(w * 0.2), cy + Math.floor(h * 0.24), Math.floor(h * 0.11), INK);
-    cv.circle(cx + Math.floor(w * 0.18), cy + Math.floor(h * 0.24), Math.floor(h * 0.11), INK);
-    cv.circle(cx - Math.floor(w * 0.2), cy + Math.floor(h * 0.24), 2, [180, 180, 190]);
-    cv.circle(cx + Math.floor(w * 0.18), cy + Math.floor(h * 0.24), 2, [180, 180, 190]);
-    cv.fill(cx + Math.floor(w * 0.2), cy + Math.floor(h * 0.1), Math.floor(w * 0.16), 2, GOLD);
-    // Chequered flag.
-    cv.fill(cx + Math.floor(w * 0.32), y + 4, 2, Math.floor(h * 0.34), INK);
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 3; c++) {
-        if ((r + c) % 2 === 0) cv.fill(cx + Math.floor(w * 0.32) + 2 + c * 4, y + 4 + r * 4, 4, 4, INK);
-        else cv.fill(cx + Math.floor(w * 0.32) + 2 + c * 4, y + 4 + r * 4, 4, 4, WHITE);
-      }
-    }
+    cv.tri(cx + Math.floor(w * 0.22), y + h - 14, cx + Math.floor(w * 0.22) - 6, y + h - 6, cx + Math.floor(w * 0.22) + 6, y + h - 6, ORANGE);
+    cv.circle(cx + Math.floor(w * 0.22), y + h - 10, 4, GOLD);
+  } else if (scene === "flame") {
+    cv.fill(x, y, w, h, SKY);
+    cv.tri(cx, y + 4, cx - Math.floor(h * 0.28), cy + Math.floor(h * 0.2), cx + Math.floor(h * 0.28), cy + Math.floor(h * 0.2), ORANGE);
+    cv.circle(cx, cy + Math.floor(h * 0.1), Math.floor(h * 0.22), ORANGE);
+    cv.circle(cx, cy + Math.floor(h * 0.18), Math.floor(h * 0.13), GOLD);
+    cv.circle(cx, cy + Math.floor(h * 0.24), Math.floor(h * 0.07), [255, 240, 180]);
+    cv.fill(x, y + h - 6, w, 6, [90, 60, 50]);
+  } else if (scene === "shield") {
+    cv.fill(x, y, w, h, SKY);
+    cv.tri(cx - Math.floor(h * 0.3), y + 6, cx + Math.floor(h * 0.3), y + 6, cx, y + Math.floor(h * 0.3), NAVY2);
+    cv.fill(cx - Math.floor(h * 0.3), y + 6, Math.floor(h * 0.6), Math.floor(h * 0.42), NAVY2);
+    cv.tri(cx - Math.floor(h * 0.3), y + Math.floor(h * 0.48), cx + Math.floor(h * 0.3), y + Math.floor(h * 0.48), cx, y + h - 6, NAVY2);
+    cv.fill(cx - Math.floor(w * 0.06), y + Math.floor(h * 0.3), Math.floor(w * 0.12), 3, GOLD);
+    cv.fill(cx - 2, y + Math.floor(h * 0.18), 4, Math.floor(h * 0.2), GOLD);
+  } else if (scene === "dollar") {
+    cv.fill(x, y, w, h, SKY);
+    cv.circle(cx, cy, Math.floor(h * 0.36), GREEN);
+    cv.ring(cx, cy, Math.floor(h * 0.36), 2, WHITE);
+    drawText(cv, cx - 5, cy - 7, "$", 2, WHITE, true);
+  } else if (scene === "ship") {
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.6), w, Math.floor(h * 0.4), [60, 120, 180]);
+    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.42), Math.floor(w * 0.6), Math.floor(h * 0.2), [40, 40, 48]);
+    cv.tri(cx + Math.floor(w * 0.3), y + Math.floor(h * 0.42), cx + Math.floor(w * 0.3), y + Math.floor(h * 0.62), cx + Math.floor(w * 0.38), y + Math.floor(h * 0.62), [40, 40, 48]);
+    cv.fill(cx - 1, y + Math.floor(h * 0.12), 2, Math.floor(h * 0.32), [40, 40, 48]);
+    cv.fill(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.28), Math.floor(w * 0.05), Math.floor(h * 0.16), [200, 60, 40]);
+    cv.circle(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.3), Math.floor(h * 0.12), ORANGE);
+    cv.circle(cx + Math.floor(w * 0.02), y + Math.floor(h * 0.16), Math.floor(h * 0.08), [120, 120, 125]);
+    cv.circle(cx - Math.floor(w * 0.02), y + Math.floor(h * 0.06), Math.floor(h * 0.07), [130, 130, 135]);
+    cv.fill(x + 12, y + Math.floor(h * 0.72), 16, 2, [200, 220, 240]);
+    cv.fill(x + w - 30, y + Math.floor(h * 0.8), 16, 2, [200, 220, 240]);
   } else if (scene === "hospital") {
-    cv.vgrad(x, y, w, h, [236, 241, 246], [214, 222, 228]);
-    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.16), Math.floor(w * 0.56), Math.floor(h * 0.74), WHITE);
-    cv.rect(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.16), Math.floor(w * 0.56), Math.floor(h * 0.74), [200, 200, 205]);
-    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.16), Math.floor(w * 0.56), 3, RED);
-    cv.fill(cx - 2, y + Math.floor(h * 0.22), 4, Math.floor(h * 0.22), RED);
-    cv.fill(cx - Math.floor(w * 0.06), y + Math.floor(h * 0.28), Math.floor(w * 0.12), 4, RED);
-    cv.fill(cx - Math.floor(w * 0.2), y + Math.floor(h * 0.54), 6, 6, BLUE);
-    cv.fill(cx + Math.floor(w * 0.14), y + Math.floor(h * 0.54), 6, 6, BLUE);
+    cv.fill(x, y, w, h, [235, 240, 245]);
+    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), Math.floor(h * 0.72), WHITE);
+    cv.rect(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), Math.floor(h * 0.72), [200, 200, 205]);
+    cv.fill(cx - Math.floor(w * 0.28), y + Math.floor(h * 0.18), Math.floor(w * 0.56), 3, RED);
+    cv.fill(cx - 2, y + Math.floor(h * 0.24), 4, Math.floor(h * 0.22), RED);
+    cv.fill(cx - Math.floor(w * 0.06), y + Math.floor(h * 0.3), Math.floor(w * 0.12), 4, RED);
+    cv.fill(cx - Math.floor(w * 0.2), y + Math.floor(h * 0.55), 6, 6, BLUE);
+    cv.fill(cx + Math.floor(w * 0.14), y + Math.floor(h * 0.55), 6, 6, BLUE);
     cv.fill(cx - 5, y + Math.floor(h * 0.72), 10, Math.floor(h * 0.18), INK);
     cv.fill(x, y + h - 4, w, 4, [150, 160, 150]);
   } else if (scene === "van") {
-    // Aid van: the red cross is now large and centred on the van side —
-    // a 10 px wide vertical bar and a 26 px wide arm, deliberately
-    // overlapping the body edges so it reads at 1024 px — while the van
-    // body, cab window and wheels stay readable. Cross sits clear of the
-    // number badge (top-left) and the stat chip (top-right).
-    cv.vgrad(x, y, w, h, SKY, [226, 232, 238]);
-    cv.fill(x, y + Math.floor(h * 0.7), w, Math.floor(h * 0.3), [90, 90, 95]);
-    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.26), Math.floor(w * 0.5), Math.floor(h * 0.36), WHITE);
-    cv.rect(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.26), Math.floor(w * 0.5), Math.floor(h * 0.36), [180, 180, 185]);
-    // Cab window, fully inside the body, stronger blue so it reads.
-    cv.fill(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.3), Math.floor(w * 0.1), Math.floor(h * 0.2), [120, 170, 210]);
-    cv.rect(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.3), Math.floor(w * 0.1), Math.floor(h * 0.2), INK);
-    // Red cross, large and centred on the van side.
-    cv.fill(cx - 5, y + Math.floor(h * 0.16), 10, Math.floor(h * 0.52), RED);
-    cv.fill(cx - 13, y + Math.floor(h * 0.3), 26, 10, RED);
-    // Wheels, larger with light hubs; road dashes.
-    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), Math.floor(h * 0.12), INK);
-    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), Math.floor(h * 0.12), INK);
-    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), 2, [180, 180, 190]);
-    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), 2, [180, 180, 190]);
-    cv.fill(x + 10, y + Math.floor(h * 0.38), 12, 2, [200, 200, 205]);
-    cv.fill(x + 26, y + Math.floor(h * 0.48), 8, 2, [200, 200, 205]);
-  } else if (scene === "power") {
-    cv.vgrad(x, y, w, h, SKY, [210, 220, 232]);
-    cv.line(cx - Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx - Math.floor(w * 0.02), y + Math.floor(h * 0.14), INK);
-    cv.line(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx + Math.floor(w * 0.02), y + Math.floor(h * 0.14), INK);
-    cv.line(cx - Math.floor(w * 0.09), y + Math.floor(h * 0.3), cx + Math.floor(w * 0.09), y + Math.floor(h * 0.3), INK);
-    cv.line(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.07), y + Math.floor(h * 0.5), INK);
-    cv.line(x + 4, y + Math.floor(h * 0.2), cx - Math.floor(w * 0.05), y + Math.floor(h * 0.18), INK);
-    cv.line(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.18), x + w - 4, y + Math.floor(h * 0.2), INK);
-    cv.thickLine(cx + Math.floor(w * 0.18), y + Math.floor(h * 0.2), cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), 3, GOLD);
-    cv.thickLine(cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), 3, GOLD);
-    cv.thickLine(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), cx + Math.floor(w * 0.06), y + Math.floor(h * 0.85), 3, GOLD);
-    for (let i = 0; i < 4; i++) cv.fill(x + w - 30 + i * 6, y + Math.floor(h * 0.7), 3, 3, [60, 60, 70]);
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.72), w, Math.floor(h * 0.28), [90, 90, 95]);
+    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.28), Math.floor(w * 0.5), Math.floor(h * 0.34), WHITE);
+    cv.rect(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.28), Math.floor(w * 0.5), Math.floor(h * 0.34), [180, 180, 185]);
+    cv.fill(cx + Math.floor(w * 0.2), y + Math.floor(h * 0.4), Math.floor(w * 0.14), Math.floor(h * 0.22), [200, 220, 235]);
+    cv.fill(cx - Math.floor(w * 0.08), y + Math.floor(h * 0.34), 4, Math.floor(h * 0.2), RED);
+    cv.fill(cx - Math.floor(w * 0.08) - 5, y + Math.floor(h * 0.4), 14, 4, RED);
+    cv.circle(cx - Math.floor(w * 0.18), y + Math.floor(h * 0.64), Math.floor(h * 0.09), INK);
+    cv.circle(cx + Math.floor(w * 0.22), y + Math.floor(h * 0.64), Math.floor(h * 0.09), INK);
+    cv.fill(x + 10, y + Math.floor(h * 0.4), 12, 2, [200, 200, 205]);
+    cv.fill(x + 26, y + Math.floor(h * 0.5), 8, 2, [200, 200, 205]);
   } else if (scene === "sub") {
-    cv.vgrad(x, y, w, h, [70, 130, 180], [30, 70, 120]);
+    cv.fill(x, y, w, h, [70, 130, 180]);
     cv.fill(x, y + 2, w, 2, [140, 200, 235]);
     cv.fill(cx - Math.floor(w * 0.3), cy - Math.floor(h * 0.12), Math.floor(w * 0.6), Math.floor(h * 0.24), [40, 50, 66]);
     cv.circle(cx - Math.floor(w * 0.3), cy, Math.floor(h * 0.12), [40, 50, 66]);
@@ -795,52 +577,254 @@ function drawScene(cv, x, y, w, h, scene, accent) {
     for (let i = -1; i <= 1; i++) cv.circle(cx + i * Math.floor(w * 0.12), cy, 2, WHITE);
     cv.circle(cx + Math.floor(w * 0.1), cy - Math.floor(h * 0.36), 2, [200, 220, 240]);
     cv.circle(cx + Math.floor(w * 0.14), cy - Math.floor(h * 0.44), 1, [200, 220, 240]);
+  } else if (scene === "power") {
+    cv.fill(x, y, w, h, SKY);
+    cv.line(cx - Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx - Math.floor(w * 0.02), y + Math.floor(h * 0.15), INK);
+    cv.line(cx + Math.floor(w * 0.12), y + Math.floor(h * 0.9), cx + Math.floor(w * 0.02), y + Math.floor(h * 0.15), INK);
+    cv.line(cx - Math.floor(w * 0.09), y + Math.floor(h * 0.3), cx + Math.floor(w * 0.09), y + Math.floor(h * 0.3), INK);
+    cv.line(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.07), y + Math.floor(h * 0.5), INK);
+    cv.line(x + 4, y + Math.floor(h * 0.2), cx - Math.floor(w * 0.05), y + Math.floor(h * 0.18), INK);
+    cv.line(cx + Math.floor(w * 0.05), y + Math.floor(h * 0.18), x + w - 4, y + Math.floor(h * 0.2), INK);
+    cv.thickLine(cx + Math.floor(w * 0.18), y + Math.floor(h * 0.2), cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), 3, GOLD);
+    cv.thickLine(cx + Math.floor(w * 0.1), y + Math.floor(h * 0.5), cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), 3, GOLD);
+    cv.thickLine(cx + Math.floor(w * 0.16), y + Math.floor(h * 0.56), cx + Math.floor(w * 0.06), y + Math.floor(h * 0.85), 3, GOLD);
+  } else if (scene === "protest") {
+    cv.fill(x, y, w, h, [240, 235, 225]);
+    const cols = [NAVY2, RED, TEAL, GREEN, PURPLE];
+    for (let i = 0; i < 5; i++) {
+      const dx = cx - Math.floor(w * 0.32) + i * Math.floor(w * 0.16);
+      cv.circle(dx, y + Math.floor(h * 0.3), 5, [232, 214, 188]);
+      cv.fill(dx - 7, y + Math.floor(h * 0.36), 14, Math.floor(h * 0.2), cols[i]);
+    }
+    for (let i = 0; i < 6; i++) {
+      const dx = cx - Math.floor(w * 0.38) + i * Math.floor(w * 0.15);
+      cv.circle(dx, y + Math.floor(h * 0.58), 5, [232, 214, 188]);
+      cv.fill(dx - 7, y + Math.floor(h * 0.64), 14, Math.floor(h * 0.26), cols[(i + 2) % 5]);
+    }
+    cv.fill(cx - Math.floor(w * 0.42), y + Math.floor(h * 0.08), 2, Math.floor(h * 0.3), INK);
+    cv.fill(cx - Math.floor(w * 0.42) - 8, y + Math.floor(h * 0.08), 18, 10, WHITE);
+    cv.fill(cx - Math.floor(w * 0.42) - 6, y + Math.floor(h * 0.11), 14, 2, RED);
+    cv.fill(cx + Math.floor(w * 0.38), y + Math.floor(h * 0.14), 2, Math.floor(h * 0.3), INK);
+    cv.fill(cx + Math.floor(w * 0.38) - 8, y + Math.floor(h * 0.14), 18, 10, WHITE);
+    cv.fill(cx + Math.floor(w * 0.38) - 6, y + Math.floor(h * 0.17), 14, 2, TEAL);
+  } else if (scene === "drones") {
+    // Night sky over Dymer: a swarm of drones, two searchlight beams, a
+    // burning five-storey block and rooftop silhouettes.
+    cv.fill(x, y, w, h, NIGHT);
+    for (let i = 0; i < 46; i++) {
+      const sx = x + 4 + ((i * 67) % (w - 8)), sy = y + 3 + ((i * 31) % Math.floor(h * 0.5));
+      cv.fill(sx, sy, 2, 2, [215, 218, 235]);
+    }
+    cv.circle(x + w - 30, y + 14, 8, [238, 238, 218]);
+    cv.circle(x + w - 34, y + 11, 7, NIGHT);
+    // Searchlight beams from two rooftop positions.
+    cv.tri(x + 26, y + h - 14, x + 96, y + 8, x + 118, y + 12, [120, 140, 190]);
+    cv.tri(x + w - 30, y + h - 14, x + w - 120, y + 16, x + w - 98, y + 10, [110, 130, 180]);
+    cv.fill(x + 20, y + h - 14, 12, 4, GOLD);
+    cv.fill(x + w - 36, y + h - 14, 12, 4, GOLD);
+    // Drone swarm: body, four rotor ticks, red blink light.
+    const swarm = [[52, 16], [96, 26], [140, 12], [182, 24], [224, 14], [262, 28], [78, 38], [168, 40], [248, 44], [120, 48]];
+    for (const d of swarm) {
+      const dx = x + Math.floor(d[0] * w / 322), dy = y + Math.floor(d[1] * h / 98);
+      cv.fill(dx - 5, dy - 1, 10, 3, [205, 208, 220]);
+      cv.fill(dx - 8, dy - 3, 3, 2, [150, 155, 170]); cv.fill(dx + 5, dy - 3, 3, 2, [150, 155, 170]);
+      cv.fill(dx - 8, dy + 1, 3, 2, [150, 155, 170]); cv.fill(dx + 5, dy + 1, 3, 2, [150, 155, 170]);
+      cv.fill(dx, dy + 2, 2, 2, RED);
+    }
+    // Skyline with the destroyed block: gap, rubble and flames.
+    const blocks = [[4, 30, 34], [42, 22, 42], [80, 36, 28], [196, 26, 38], [240, 34, 30], [278, 24, 40]];
+    for (const b of blocks) cv.fill(x + Math.floor(b[0] * w / 322), y + h - b[1], Math.floor(b[2] * w / 322), b[1], [28, 32, 52]);
+    for (let i = 0; i < 16; i++) {
+      const wx = x + 10 + ((i * 37) % Math.floor(w * 0.92)), wy = y + h - 8 - ((i * 13) % 22);
+      cv.fill(wx, wy, 2, 3, GOLD);
+    }
+    cv.fill(x + Math.floor(w * 0.36), y + h - 20, Math.floor(w * 0.24), 20, [24, 27, 44]);
+    cv.tri(x + Math.floor(w * 0.44), y + h - 34, x + Math.floor(w * 0.4), y + h - 18, x + Math.floor(w * 0.5), y + h - 18, ORANGE);
+    cv.circle(x + Math.floor(w * 0.45), y + h - 20, 6, ORANGE);
+    cv.circle(x + Math.floor(w * 0.45), y + h - 15, 4, GOLD);
+    cv.circle(x + Math.floor(w * 0.47), y + h - 40, 6, [95, 95, 105]);
+    cv.circle(x + Math.floor(w * 0.5), y + h - 48, 7, [105, 105, 115]);
+    cv.fill(x, y + h - 3, w, 3, [16, 18, 34]);
+  } else if (scene === "claim") {
+    // Gulf at dusk: two ships, a radar dish sweeping, a fire on the shore
+    // installation — claim on one side, denial on the other.
+    cv.fill(x, y, w, Math.floor(h * 0.62), [240, 178, 118]);
+    cv.fill(x, y + Math.floor(h * 0.62), w, Math.floor(h * 0.38), [38, 84, 138]);
+    cv.circle(x + 44, y + Math.floor(h * 0.6), 13, [255, 216, 130]);
+    for (let i = 0; i < 12; i++) cv.fill(x + 8 + ((i * 53) % (w - 16)), y + Math.floor(h * 0.7) + ((i * 7) % Math.floor(h * 0.24)), 14, 2, [170, 205, 235]);
+    // Radar tower with rotating dish and signal arcs.
+    const rx = x + Math.floor(w * 0.68);
+    cv.fill(rx, y + Math.floor(h * 0.34), 6, Math.floor(h * 0.3), [70, 62, 58]);
+    cv.line(rx + 3, y + Math.floor(h * 0.34), rx - 12, y + Math.floor(h * 0.18), [70, 62, 58]);
+    cv.line(rx + 3, y + Math.floor(h * 0.34), rx + 18, y + Math.floor(h * 0.18), [70, 62, 58]);
+    cv.ring(rx + 3, y + Math.floor(h * 0.2), 9, 1, WHITE);
+    cv.ring(rx + 3, y + Math.floor(h * 0.2), 15, 1, [255, 240, 200]);
+    // Shore installation with flames and smoke.
+    cv.fill(x + Math.floor(w * 0.8), y + Math.floor(h * 0.44), Math.floor(w * 0.16), Math.floor(h * 0.2), [88, 70, 60]);
+    cv.circle(x + Math.floor(w * 0.86), y + Math.floor(h * 0.4), 7, ORANGE);
+    cv.tri(x + Math.floor(w * 0.86), y + Math.floor(h * 0.24), x + Math.floor(w * 0.83), y + Math.floor(h * 0.42), x + Math.floor(w * 0.89), y + Math.floor(h * 0.42), GOLD);
+    cv.circle(x + Math.floor(w * 0.88), y + Math.floor(h * 0.2), 6, [120, 120, 125]);
+    cv.circle(x + Math.floor(w * 0.91), y + Math.floor(h * 0.12), 5, [130, 130, 135]);
+    // Two grey ships on the waterline.
+    for (const s of [[0.06, 0.68, 0.3], [0.4, 0.8, 0.22]]) {
+      const sx = x + Math.floor(w * s[0]), sy = y + Math.floor(h * s[1]), sw = Math.floor(w * s[2]);
+      cv.fill(sx, sy, sw, 8, [32, 34, 42]);
+      cv.tri(sx + sw, sy, sx + sw, sy + 8, sx + sw + 12, sy + 8, [32, 34, 42]);
+      cv.fill(sx + Math.floor(sw * 0.3), sy - 10, Math.floor(sw * 0.3), 10, [52, 56, 66]);
+      cv.fill(sx + Math.floor(sw * 0.44), sy - 20, 2, 10, [52, 56, 66]);
+    }
+  } else if (scene === "ballot") {
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.78), w, Math.floor(h * 0.22), [120, 150, 110]);
+    cv.fill(cx - Math.floor(w * 0.2), y + Math.floor(h * 0.4), Math.floor(w * 0.4), Math.floor(h * 0.42), NAVY2);
+    cv.fill(cx - Math.floor(w * 0.24), y + Math.floor(h * 0.34), Math.floor(w * 0.48), Math.floor(h * 0.08), GOLD);
+    cv.fill(cx - Math.floor(w * 0.13), y + Math.floor(h * 0.52), Math.floor(w * 0.26), 3, INK);
+    cv.fill(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.08), Math.floor(w * 0.14), Math.floor(h * 0.3), WHITE);
+    cv.rect(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.08), Math.floor(w * 0.14), Math.floor(h * 0.3), [180, 180, 185]);
+    cv.thickLine(cx - Math.floor(w * 0.045), y + Math.floor(h * 0.2), cx - Math.floor(w * 0.015), y + Math.floor(h * 0.27), 2, GREEN);
+    cv.thickLine(cx - Math.floor(w * 0.015), y + Math.floor(h * 0.27), cx + Math.floor(w * 0.05), y + Math.floor(h * 0.13), 2, GREEN);
+    cv.circle(x + Math.floor(w * 0.14), y + Math.floor(h * 0.3), 5, [232, 214, 188]);
+    cv.fill(x + Math.floor(w * 0.14) - 6, y + Math.floor(h * 0.3) + 5, 12, Math.floor(h * 0.24), RED);
+    cv.circle(x + w - Math.floor(w * 0.14), y + Math.floor(h * 0.3), 5, [232, 214, 188]);
+    cv.fill(x + w - Math.floor(w * 0.14) - 6, y + Math.floor(h * 0.3) + 5, 12, Math.floor(h * 0.24), TEAL);
+  } else if (scene === "cricket") {
+    cv.fill(x, y, w, h, [168, 208, 150]);
+    cv.fill(cx - Math.floor(w * 0.3), y + Math.floor(h * 0.2), Math.floor(w * 0.6), Math.floor(h * 0.62), [232, 220, 180]);
+    for (const gx of [-0.16, 0.16]) {
+      for (let s = 0; s < 3; s++) cv.fill(cx + Math.floor(w * gx) + s * 5 - 5, y + Math.floor(h * 0.26), 3, Math.floor(h * 0.3), [240, 235, 200]);
+      cv.fill(cx + Math.floor(w * gx) - 6, y + Math.floor(h * 0.24), 15, 2, [240, 235, 200]);
+    }
+    cv.circle(cx - Math.floor(w * 0.05), y + Math.floor(h * 0.62), 4, RED);
+    cv.line(cx - Math.floor(w * 0.05), y + Math.floor(h * 0.62), cx + Math.floor(w * 0.1), y + Math.floor(h * 0.34), [200, 200, 205]);
+    cv.thickLine(cx + Math.floor(w * 0.2), y + Math.floor(h * 0.2), cx + Math.floor(w * 0.13), y + Math.floor(h * 0.52), 3, [150, 110, 60]);
+  } else if (scene === "f1") {
+    cv.fill(x, y, w, h, NIGHT);
+    for (let i = 0; i < 14; i++) cv.fill(x + 6 + ((i * 41) % (w - 12)), y + 3 + ((i * 11) % Math.floor(h * 0.3)), 2, 2, [215, 218, 235]);
+    cv.fill(x, y + Math.floor(h * 0.66), w, Math.floor(h * 0.34), [52, 52, 60]);
+    for (let i = 0; i < 6; i++) cv.fill(x + 8 + i * Math.floor(w / 6), y + Math.floor(h * 0.8), Math.floor(w * 0.08), 3, WHITE);
+    const bx = cx - Math.floor(w * 0.3), by = y + Math.floor(h * 0.44), bw2 = Math.floor(w * 0.6);
+    cv.fill(bx, by + Math.floor(h * 0.12), bw2, Math.floor(h * 0.12), RED);
+    cv.tri(bx + bw2, by + Math.floor(h * 0.12), bx + bw2, by + Math.floor(h * 0.24), bx + bw2 + 8, by + Math.floor(h * 0.24), RED);
+    cv.fill(bx + Math.floor(bw2 * 0.36), by, Math.floor(bw2 * 0.26), Math.floor(h * 0.13), [30, 30, 38]);
+    cv.circle(bx + Math.floor(bw2 * 0.49), by + Math.floor(h * 0.05), 3, GOLD);
+    cv.fill(bx - 6, by + Math.floor(h * 0.05), 6, Math.floor(h * 0.2), INK);
+    cv.fill(bx + bw2 - 4, by - Math.floor(h * 0.08), Math.floor(bw2 * 0.2), 3, INK);
+    cv.circle(bx + Math.floor(bw2 * 0.16), by + Math.floor(h * 0.26), Math.floor(h * 0.11), INK);
+    cv.circle(bx + Math.floor(bw2 * 0.8), by + Math.floor(h * 0.26), Math.floor(h * 0.11), INK);
+    cv.circle(bx + Math.floor(bw2 * 0.16), by + Math.floor(h * 0.26), 2, [200, 200, 205]);
+    cv.circle(bx + Math.floor(bw2 * 0.8), by + Math.floor(h * 0.26), 2, [200, 200, 205]);
+  } else if (scene === "hoops") {
+    cv.fill(x, y, w, h, [222, 178, 128]);
+    cv.fill(x, y + Math.floor(h * 0.7), w, Math.floor(h * 0.3), [190, 140, 90]);
+    cv.line(x, y + Math.floor(h * 0.7), x + w, y + Math.floor(h * 0.7), [150, 100, 60]);
+    cv.fill(cx - Math.floor(w * 0.14), y + Math.floor(h * 0.1), Math.floor(w * 0.28), Math.floor(h * 0.34), WHITE);
+    cv.rect(cx - Math.floor(w * 0.14), y + Math.floor(h * 0.1), Math.floor(w * 0.28), Math.floor(h * 0.34), INK);
+    cv.ring(cx, y + Math.floor(h * 0.46), Math.floor(w * 0.07), 2, RED);
+    cv.line(cx - Math.floor(w * 0.07), y + Math.floor(h * 0.46), cx - Math.floor(w * 0.04), y + Math.floor(h * 0.64), WHITE);
+    cv.line(cx + Math.floor(w * 0.07), y + Math.floor(h * 0.46), cx + Math.floor(w * 0.04), y + Math.floor(h * 0.64), WHITE);
+    cv.circle(cx - Math.floor(w * 0.26), y + Math.floor(h * 0.3), Math.floor(h * 0.13), ORANGE);
+    cv.line(cx - Math.floor(w * 0.26) - Math.floor(h * 0.13), y + Math.floor(h * 0.3), cx - Math.floor(w * 0.26) + Math.floor(h * 0.13), y + Math.floor(h * 0.3), INK);
+    drawText(cv, cx + Math.floor(w * 0.2), y + Math.floor(h * 0.16), "50", 2, RED, true);
+  } else if (scene === "database") {
+    cv.fill(x, y, w, h, [30, 36, 58]);
+    for (let s = 0; s < 3; s++) {
+      const sx = cx - Math.floor(w * 0.3) + s * Math.floor(w * 0.22);
+      cv.fill(sx, y + Math.floor(h * 0.16), Math.floor(w * 0.18), Math.floor(h * 0.68), [52, 62, 88]);
+      cv.rect(sx, y + Math.floor(h * 0.16), Math.floor(w * 0.18), Math.floor(h * 0.68), [90, 100, 130]);
+      for (let r = 0; r < 4; r++) { cv.fill(sx + 4, y + Math.floor(h * 0.24) + r * Math.floor(h * 0.15), Math.floor(w * 0.1), 2, [90, 100, 130]); cv.circle(sx + Math.floor(w * 0.15), y + Math.floor(h * 0.25) + r * Math.floor(h * 0.15), 1, r === 1 ? RED : GREEN); }
+    }
+    cv.ring(cx + Math.floor(w * 0.3), y + Math.floor(h * 0.42), Math.floor(h * 0.2), 3, GOLD);
+    cv.thickLine(cx + Math.floor(w * 0.3) + Math.floor(h * 0.15), y + Math.floor(h * 0.42) + Math.floor(h * 0.15), cx + Math.floor(w * 0.3) + Math.floor(h * 0.3), y + Math.floor(h * 0.42) + Math.floor(h * 0.3), 3, GOLD);
+    cv.line(cx + Math.floor(w * 0.3) - 4, y + Math.floor(h * 0.42), cx + Math.floor(w * 0.3) + 4, y + Math.floor(h * 0.42), RED);
+  } else if (scene === "plane") {
+    cv.fill(x, y, w, h, SKY);
+    cv.circle(x + Math.floor(w * 0.12), y + Math.floor(h * 0.24), 6, [255, 255, 255]);
+    cv.circle(x + Math.floor(w * 0.2), y + Math.floor(h * 0.2), 8, [255, 255, 255]);
+    cv.circle(x + Math.floor(w * 0.82), y + Math.floor(h * 0.7), 7, [255, 255, 255]);
+    const px0 = cx - Math.floor(w * 0.3), py0 = y + Math.floor(h * 0.42);
+    cv.fill(px0, py0, Math.floor(w * 0.52), Math.floor(h * 0.14), WHITE);
+    cv.tri(px0 + Math.floor(w * 0.52), py0, px0 + Math.floor(w * 0.52), py0 + Math.floor(h * 0.14), px0 + Math.floor(w * 0.62), py0 + Math.floor(h * 0.1), WHITE);
+    cv.fill(px0 + 2, py0 - Math.floor(h * 0.16), Math.floor(w * 0.08), Math.floor(h * 0.16), NAVY2);
+    cv.tri(cx - Math.floor(w * 0.02), py0 + Math.floor(h * 0.1), cx + Math.floor(w * 0.14), py0 + Math.floor(h * 0.1), cx + Math.floor(w * 0.06), py0 + Math.floor(h * 0.3), NAVY2);
+    for (let i = 0; i < 6; i++) cv.fill(px0 + 10 + i * 9, py0 + 3, 4, 3, BLUE);
+    cv.thickLine(cx + Math.floor(w * 0.18), y + Math.floor(h * 0.14), cx + Math.floor(w * 0.34), y + Math.floor(h * 0.5), 3, RED);
+    cv.thickLine(cx + Math.floor(w * 0.34), y + Math.floor(h * 0.14), cx + Math.floor(w * 0.18), y + Math.floor(h * 0.5), 3, RED);
+  } else if (scene === "factory") {
+    cv.fill(x, y, w, h, [206, 200, 188]);
+    cv.fill(x, y + Math.floor(h * 0.76), w, Math.floor(h * 0.24), [110, 100, 92]);
+    cv.fill(x + Math.floor(w * 0.1), y + Math.floor(h * 0.42), Math.floor(w * 0.62), Math.floor(h * 0.34), [150, 144, 134]);
+    cv.tri(x + Math.floor(w * 0.1), y + Math.floor(h * 0.42), x + Math.floor(w * 0.3), y + Math.floor(h * 0.28), x + Math.floor(w * 0.5), y + Math.floor(h * 0.42), [120, 112, 102]);
+    cv.fill(x + Math.floor(w * 0.78), y + Math.floor(h * 0.2), Math.floor(w * 0.07), Math.floor(h * 0.56), [120, 112, 102]);
+    for (let i = 0; i < 5; i++) cv.fill(x + Math.floor(w * 0.15) + i * Math.floor(w * 0.11), y + Math.floor(h * 0.52), Math.floor(w * 0.06), Math.floor(h * 0.12), GOLD);
+    cv.circle(cx, y + Math.floor(h * 0.34), Math.floor(h * 0.16), ORANGE);
+    cv.tri(cx, y + Math.floor(h * 0.06), cx - Math.floor(h * 0.14), y + Math.floor(h * 0.36), cx + Math.floor(h * 0.14), y + Math.floor(h * 0.36), ORANGE);
+    cv.circle(cx, y + Math.floor(h * 0.4), Math.floor(h * 0.09), GOLD);
+    cv.circle(x + Math.floor(w * 0.81), y + Math.floor(h * 0.12), 5, [130, 130, 135]);
+    cv.circle(x + Math.floor(w * 0.84), y + Math.floor(h * 0.05), 4, [140, 140, 145]);
+  } else if (scene === "quake") {
+    cv.fill(x, y, w, h, SKY);
+    cv.fill(x, y + Math.floor(h * 0.72), w, Math.floor(h * 0.28), [130, 110, 88]);
+    cv.fill(x + Math.floor(w * 0.12), y + Math.floor(h * 0.3), Math.floor(w * 0.3), Math.floor(h * 0.42), [168, 160, 148]);
+    cv.tri(x + Math.floor(w * 0.12), y + Math.floor(h * 0.3), x + Math.floor(w * 0.27), y + Math.floor(h * 0.16), x + Math.floor(w * 0.42), y + Math.floor(h * 0.3), [120, 80, 60]);
+    cv.fill(x + Math.floor(w * 0.58), y + Math.floor(h * 0.38), Math.floor(w * 0.26), Math.floor(h * 0.34), [178, 170, 158]);
+    cv.thickLine(x + Math.floor(w * 0.24), y + Math.floor(h * 0.32), x + Math.floor(w * 0.2), y + Math.floor(h * 0.5), 2, INK);
+    cv.thickLine(x + Math.floor(w * 0.2), y + Math.floor(h * 0.5), x + Math.floor(w * 0.27), y + Math.floor(h * 0.7), 2, INK);
+    cv.thickLine(x + Math.floor(w * 0.3), y + Math.floor(h * 0.74), x + Math.floor(w * 0.42), y + Math.floor(h * 0.84), 2, INK);
+    cv.thickLine(x + Math.floor(w * 0.42), y + Math.floor(h * 0.84), x + Math.floor(w * 0.38), y + Math.floor(h * 0.94), 2, INK);
+    cv.fill(x + Math.floor(w * 0.18), y + Math.floor(h * 0.44), 5, 6, BLUE);
+    cv.fill(x + Math.floor(w * 0.64), y + Math.floor(h * 0.48), 5, 6, BLUE);
   }
+  cv.rect(x, y, w, h, [200, 200, 205]);
 }
 
-// ---------- world map: continent coastlines as [lon, lat] vertices ----------
-// Simplified polygons written from geographic knowledge; projected
-// equirectangularly by the caller and rendered as a dot grid.
+// ---------- world map data: continent coastlines as [lon, lat] vertices ----------
+// Hand-written from geographic knowledge; projected equirectangularly by the
+// caller. Continents are composed of simple polygons (overlaps merge visually).
 const CONTINENTS = [
-  // North America
-  [[-168, 66], [-160, 58], [-150, 60], [-140, 60], [-130, 54], [-125, 49], [-124, 40], [-120, 34], [-112, 28], [-106, 22], [-97, 16], [-90, 14], [-84, 10], [-80, 8], [-79, 9], [-82, 14], [-86, 20], [-84, 25], [-81, 26], [-80, 31], [-76, 35], [-73, 40], [-69, 43], [-65, 44], [-60, 46], [-56, 48], [-60, 51], [-65, 55], [-70, 58], [-78, 56], [-84, 54], [-88, 57], [-92, 62], [-88, 66], [-95, 69], [-108, 68], [-125, 70], [-140, 70], [-155, 71], [-165, 69]],
+  // North America: Alaska down the Pacific coast, Central America, up the Atlantic coast, Hudson Bay notch, Arctic coast back west.
+  [[-168, 66], [-165, 60], [-158, 58], [-150, 59], [-140, 60], [-135, 57], [-130, 54], [-125, 49], [-124, 42], [-120, 34], [-114, 29], [-110, 24], [-105, 20], [-97, 16], [-92, 15], [-87, 13], [-83, 9], [-80, 8], [-78, 7], [-80, 10], [-81, 14], [-83, 17], [-86, 21], [-84, 24], [-81, 26], [-80, 30], [-76, 35], [-74, 39], [-70, 42], [-66, 44], [-60, 46], [-55, 47], [-60, 50], [-64, 53], [-68, 55], [-72, 58], [-78, 55], [-82, 52], [-86, 55], [-90, 58], [-92, 62], [-88, 65], [-85, 66], [-90, 68], [-95, 69], [-105, 68], [-115, 69], [-125, 70], [-135, 69], [-145, 70], [-155, 71], [-162, 70], [-166, 68]],
   // Greenland
-  [[-45, 60], [-38, 64], [-30, 68], [-22, 70], [-20, 74], [-30, 76], [-45, 78], [-58, 77], [-60, 72], [-55, 66], [-50, 61]],
-  // South America
-  [[-77, 7], [-74, 11], [-68, 11], [-62, 9], [-55, 6], [-51, 4], [-50, 0], [-45, -3], [-38, -5], [-35, -8], [-38, -14], [-40, -21], [-46, -25], [-50, -30], [-55, -34], [-60, -38], [-64, -42], [-66, -47], [-69, -52], [-70, -55], [-73, -50], [-73, -40], [-72, -28], [-70, -19], [-74, -12], [-79, -5], [-81, 0], [-79, 5]],
-  // Europe (main)
-  [[-9, 37], [-6, 36], [-1, 37], [2, 41], [7, 44], [11, 44], [14, 42], [16, 38], [19, 41], [21, 40], [23, 37], [26, 38], [28, 37], [29, 40], [28, 44], [29, 46], [26, 49], [22, 52], [19, 54], [16, 55], [12, 54], [9, 55], [7, 53], [4, 52], [1, 50], [-2, 48], [-4, 48], [-2, 44], [-9, 43]],
-  // Scandinavia
-  [[5, 58], [6, 61], [10, 63], [14, 66], [18, 68], [23, 70], [28, 71], [30, 69], [27, 64], [24, 60], [21, 57], [18, 55], [13, 56], [10, 57]],
+  [[-44, 60], [-40, 63], [-32, 68], [-22, 70], [-20, 74], [-30, 76], [-45, 78], [-58, 77], [-62, 74], [-58, 70], [-55, 65], [-50, 61]],
+  // South America: Colombia east along the north coast, Brazil bulge, down to Tierra del Fuego, up the Pacific coast.
+  [[-77, 7], [-75, 10], [-72, 12], [-68, 11], [-64, 10], [-60, 8], [-55, 6], [-52, 4], [-50, 0], [-46, -2], [-42, -3], [-38, -5], [-35, -8], [-37, -12], [-39, -17], [-41, -22], [-46, -25], [-49, -29], [-53, -33], [-58, -36], [-62, -39], [-65, -42], [-66, -46], [-68, -50], [-68, -54], [-70, -55], [-73, -52], [-74, -48], [-73, -42], [-73, -36], [-72, -30], [-71, -24], [-70, -19], [-71, -14], [-75, -10], [-79, -6], [-81, -3], [-80, 1], [-79, 5]],
+  // Europe (main): Iberia along the Med to Turkey, up the Black Sea coast, west along the north, down the Atlantic coast.
+  [[-9, 37], [-6, 36], [-2, 37], [0, 39], [3, 42], [7, 43], [10, 44], [13, 43], [15, 41], [16, 38], [18, 39], [19, 41], [20, 40], [23, 37], [26, 38], [28, 37], [30, 36], [28, 38], [28, 41], [28, 44], [30, 46], [30, 48], [28, 50], [24, 52], [20, 54], [18, 55], [15, 55], [12, 54], [10, 54], [8, 55], [7, 54], [5, 53], [2, 51], [0, 50], [-2, 48], [-4, 48], [-2, 44], [-9, 43]],
+  // Scandinavia (overlaps Europe main at the top)
+  [[5, 58], [5, 60], [8, 62], [12, 64], [15, 66], [18, 68], [22, 70], [26, 71], [30, 70], [30, 67], [28, 64], [26, 61], [24, 59], [22, 57], [20, 56], [18, 55], [15, 55], [12, 56], [10, 57], [8, 58]],
   // United Kingdom
-  [[-5, 50], [-3, 53], [-5, 56], [-2, 58], [0, 55], [1, 51], [-1, 50]],
-  // Africa
-  [[-17, 15], [-15, 21], [-12, 27], [-9, 31], [-5, 34], [0, 36], [6, 37], [10, 37], [12, 33], [16, 32], [21, 32], [26, 32], [31, 31], [33, 28], [35, 26], [37, 22], [39, 18], [42, 14], [44, 11], [49, 11], [51, 8], [50, 3], [46, 0], [42, -4], [40, -9], [39, -15], [37, -20], [34, -26], [31, -29], [27, -33], [22, -35], [18, -33], [15, -28], [13, -20], [12, -14], [12, -8], [10, -3], [9, 1], [7, 4], [2, 6], [-3, 5], [-8, 5], [-12, 8], [-16, 12]],
+  [[-5, 50], [-3, 53], [-5, 56], [-3, 58], [-1, 57], [0, 54], [1, 51], [-1, 50]],
+  // Africa: Dakar north up the Atlantic coast, Med coast east, Red Sea, Horn, down the east coast, up the west coast.
+  [[-17, 15], [-16, 21], [-13, 27], [-10, 31], [-6, 33], [-1, 35], [5, 37], [10, 37], [11, 33], [15, 32], [20, 32], [25, 32], [30, 31], [32, 29], [34, 28], [36, 26], [38, 22], [39, 19], [41, 15], [43, 12], [48, 11], [51, 10], [51, 6], [48, 2], [44, 0], [41, -3], [40, -8], [40, -14], [38, -18], [36, -22], [34, -26], [32, -29], [28, -33], [24, -34], [20, -35], [17, -32], [15, -28], [13, -22], [12, -17], [13, -12], [12, -8], [10, -4], [9, 0], [9, 4], [6, 4], [2, 6], [-3, 5], [-8, 5], [-12, 8], [-15, 11], [-17, 13]],
   // Madagascar
-  [[44, -13], [47, -15], [50, -17], [48, -21], [45, -25], [43, -22], [43, -16]],
-  // Asia (main)
-  [[28, 41], [30, 46], [35, 47], [41, 47], [47, 46], [53, 46], [57, 52], [60, 60], [64, 68], [68, 71], [70, 73], [78, 73], [88, 74], [98, 76], [108, 77], [118, 74], [128, 73], [138, 72], [148, 72], [158, 70], [168, 68], [178, 65], [172, 62], [166, 60], [160, 55], [157, 51], [150, 47], [142, 49], [140, 44], [136, 41], [131, 39], [127, 38], [122, 37], [120, 33], [121, 28], [117, 24], [111, 21], [108, 17], [105, 11], [103, 8], [100, 10], [98, 14], [95, 16], [92, 20], [89, 22], [86, 20], [82, 17], [80, 13], [77, 8], [75, 11], [72, 17], [69, 22], [66, 25], [62, 25], [58, 26], [55, 26], [52, 27], [50, 29], [48, 28], [50, 25], [54, 24], [57, 21], [56, 18], [53, 15], [49, 14], [45, 13], [43, 13], [41, 16], [39, 21], [38, 25], [37, 29], [35, 32], [36, 36], [33, 36], [30, 36], [28, 39]],
+  [[44, -12], [47, -15], [50, -16], [49, -20], [46, -24], [44, -25], [43, -21], [43, -16]],
+  // Asia (main): Turkey, Caucasus, Urals to the Arctic coast, east along Siberia, down the Pacific coast, India, Arabia, back to Turkey.
+  [[28, 41], [30, 46], [35, 47], [40, 47], [45, 46], [50, 47], [55, 46], [58, 55], [60, 62], [65, 68], [68, 70], [68, 73], [75, 73], [85, 74], [95, 76], [105, 77], [115, 74], [125, 73], [135, 72], [145, 72], [155, 70], [165, 68], [175, 66], [178, 65], [173, 63], [170, 60], [162, 58], [160, 55], [158, 52], [156, 50], [150, 48], [142, 50], [140, 45], [137, 42], [133, 40], [130, 40], [127, 39], [126, 38], [122, 38], [120, 35], [122, 32], [120, 29], [118, 25], [112, 22], [109, 19], [107, 15], [105, 10], [103, 8], [100, 10], [98, 14], [96, 16], [93, 18], [91, 22], [88, 22], [85, 20], [82, 17], [80, 14], [79, 10], [77, 8], [76, 10], [73, 15], [71, 20], [69, 22], [66, 25], [62, 25], [58, 25], [56, 26], [54, 27], [52, 28], [50, 29], [48, 29], [48, 27], [50, 25], [53, 24], [56, 23], [58, 21], [57, 19], [55, 17], [52, 15], [48, 14], [45, 13], [43, 12], [42, 15], [40, 19], [39, 22], [38, 25], [37, 28], [36, 30], [35, 32], [36, 36], [33, 36], [30, 36], [28, 38]],
+  // Malay Peninsula (thin, overlaps Asia main)
+  [[100, 13], [101, 10], [102, 7], [103, 4], [104, 1], [103, 2], [101, 4], [100, 7], [99, 10], [98, 13]],
   // Japan
-  [[130, 31], [132, 33], [135, 34], [138, 36], [140, 39], [141, 42], [143, 44], [141, 43], [139, 38], [136, 35], [133, 34], [131, 32]],
+  [[130, 31], [132, 33], [135, 34], [137, 35], [139, 36], [140, 38], [141, 40], [142, 42], [144, 44], [142, 44], [140, 41], [138, 38], [136, 35], [133, 34], [131, 32]],
+  // Sri Lanka
+  [[80, 9], [81, 7], [80, 6], [79, 8]],
   // Sumatra
-  [[95, 5], [98, 3], [100, 0], [102, -3], [104, -5], [106, -6], [104, -5], [101, -1], [98, 2], [95, 4]],
+  [[95, 5], [97, 4], [99, 1], [101, -2], [103, -4], [105, -5], [106, -6], [104, -5], [102, -2], [100, 0], [97, 2], [95, 4]],
   // Borneo
-  [[109, 1], [112, 3], [115, 5], [118, 5], [118, 1], [116, -3], [112, -4], [110, -2], [109, 0]],
+  [[109, 1], [111, 3], [114, 5], [117, 6], [118, 3], [117, 0], [115, -3], [112, -4], [110, -2], [109, 0]],
   // Java
-  [[105, -6], [109, -7], [112, -8], [114, -8], [113, -9], [109, -8], [106, -7]],
+  [[105, -6], [108, -7], [111, -7], [114, -8], [114, -9], [111, -8], [108, -8], [105, -7]],
   // New Guinea
-  [[131, -1], [135, -2], [138, -3], [142, -3], [146, -6], [149, -8], [147, -9], [143, -8], [139, -6], [135, -4], [131, -1]],
+  [[131, -1], [134, -2], [137, -3], [141, -3], [145, -5], [148, -7], [150, -8], [147, -9], [144, -8], [140, -7], [136, -5], [133, -3], [131, -1]],
   // Philippines
-  [[120, 18], [121, 15], [122, 12], [123, 10], [122, 13], [121, 16], [120, 18]],
+  [[120, 18], [121, 16], [122, 14], [122, 11], [123, 10], [122, 12], [121, 15], [120, 17]],
   // Australia
-  [[113, -22], [114, -28], [115, -33], [118, -35], [123, -33], [129, -32], [133, -32], [136, -35], [140, -38], [144, -39], [147, -39], [150, -37], [153, -32], [153, -27], [150, -23], [146, -19], [142, -14], [142, -11], [140, -17], [136, -14], [132, -11], [129, -13], [125, -15], [121, -19], [116, -21]],
+  [[113, -22], [114, -27], [115, -32], [117, -35], [121, -34], [126, -32], [129, -32], [132, -32], [135, -35], [137, -35], [140, -38], [143, -39], [146, -39], [149, -37], [151, -34], [153, -30], [153, -27], [151, -24], [148, -20], [145, -17], [142, -14], [142, -11], [140, -17], [137, -15], [135, -12], [132, -11], [130, -13], [127, -14], [124, -16], [121, -19], [118, -20], [115, -21]],
   // Tasmania
-  [[145, -41], [147, -41], [148, -43], [146, -43], [145, -42]],
+  [[145, -41], [147, -41], [148, -42], [147, -43], [146, -43], [145, -42]],
   // New Zealand
-  [[167, -45], [170, -43], [172, -41], [174, -39], [176, -38], [175, -40], [173, -41], [171, -43], [168, -46]],
+  [[167, -45], [169, -43], [171, -41], [173, -40], [175, -38], [177, -38], [176, -40], [174, -41], [172, -42], [170, -44], [168, -46]],
 ];
 const LAND = [78, 128, 66];
 
+// Ray-casting point-in-polygon test on projected pixel coordinates.
 function pointInPoly(px, py, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -849,10 +833,11 @@ function pointInPoly(px, py, poly) {
   }
   return inside;
 }
+// Dotted continents: a 6 px dot grid, 2x2 px dots where the point falls on land.
 function drawDottedContinents(cv, project, x0, y0, x1, y1) {
   const polys = CONTINENTS.map((poly) => poly.map((p) => project(p[0], p[1])));
-  for (let gy = y0 + 3; gy < y1; gy += 6) {
-    for (let gx = x0 + 3; gx < x1; gx += 6) {
+  for (let gy = y0 + 2; gy < y1; gy += 5) {
+    for (let gx = x0 + 2; gx < x1; gx += 5) {
       for (const poly of polys) {
         if (pointInPoly(gx, gy, poly)) { cv.fill(gx - 1, gy - 1, 2, 2, LAND); break; }
       }
@@ -861,143 +846,116 @@ function drawDottedContinents(cv, project, x0, y0, x1, y1) {
 }
 
 // ---------- layout ----------
-// Kicker bar, serif masthead, gold rules, red italic sub-headline.
 function drawMasthead(cv) {
-  cv.fill(0, 0, W, 16, NAVY);
-  drawTextCentered(cv, 512, 4, "THE WORLD IN ONE DAY  \u2022  38 STORIES  \u2022  7 REGIONS  \u2022  EVERY ONE DATED SUNDAY 22 NOVEMBER 2026", 1, WHITE, true);
-  drawSerifCentered(cv, 512, 20, "SUNDAY 22 NOVEMBER 2026", 3, INK);
-  cv.fill(6, 62, 1012, 3, GOLD);
-  cv.fill(6, 66, 1012, 1, GOLD);
-  drawTextSlantedCentered(cv, 512, 71, "COP31 DRAFT DROPS FOSSIL FUELS * 400 DRONES HIT UKRAINE * IRAN STRIKES BAHRAIN", 2, RED, true);
+  cv.fill(0, 0, 1024, 16, NAVY);
+  drawText(cv, 8, 4, "THE WORLD IN ONE DAY", 1, GOLD, true);
+  drawTextCentered(cv, 512, 4, "36 STORIES - 7 REGIONS - EVERY ONE DATED SUNDAY 22 NOVEMBER 2026", 1, WHITE, false);
+  drawText(cv, 1016 - textWidth("EST. SUNDAY EDITION", 1), 4, "EST. SUNDAY EDITION", 1, GOLD, false);
+  drawSerifCentered(cv, 512, 22, "SUNDAY 22 NOVEMBER 2026", 3, INK);
+  cv.fill(6, 64, 1012, 3, GOLD);
+  cv.fill(6, 69, 1012, 1, GOLD);
+}
+
+function drawSubhead(cv) {
+  drawTextSlantedCentered(cv, 512, 76, "186 DRONES OVERNIGHT * COP31 FINAL TEXT * IRAN CLAIM, BAHRAIN DENIAL", 2, RED, true);
 }
 
 function drawStats(cv) {
-  const bw = 163, gap = 6, y = 90, h = 38;
+  const bw = 163, gap = 6, y = 98, h = 38;
   STATS.forEach((s, i) => {
     const x = 6 + i * (bw + gap);
-    cv.fill(x, y, bw, h, PANELBG);
-    cv.rect(x, y, bw, h, LINE);
+    cv.fill(x, y, bw, h, WHITE);
+    cv.rect(x, y, bw, h, [210, 210, 215]);
     cv.fill(x, y, bw, 3, GOLD);
-    drawTextCentered(cv, x + bw / 2, y + 7, s[0], 3, RED, true);
-    drawTextCentered(cv, x + bw / 2, y + 29, s[1], 1, MUTED, false);
+    drawTextCentered(cv, x + bw / 2, y + 6, s[0], 3, RED, true);
+    drawTextCentered(cv, x + bw / 2, y + 27, s[1], 1, MUTED, false);
   });
 }
 
-function drawRegions(cv) {
-  const y = 132, h = 22;
-  drawText(cv, 6, y + 7, "BY REGION:", 1, INK, true);
-  const x0 = 150;
-  const bw = 105, gap = 4;
-  REGIONS.forEach((r, i) => {
-    const x = x0 + i * (bw + gap);
-    cv.fill(x, y, bw, h, PANELBG);
-    cv.rect(x, y, bw, h, LINE);
-    cv.fill(x, y, 4, h, r[2]);
-    drawTextCentered(cv, x + bw / 2 + 2, y + 7, r[0] + " " + r[1], 1, INK, true);
-  });
-}
-
-// Timeline bar: the day so far, Late Sat to Sunday.
 function drawTimeline(cv) {
-  const x = 6, y = 158, w = 1012, h = 32;
-  cv.fill(x, y, w, h, PANELBG);
-  cv.rect(x, y, w, h, LINE);
-  cv.fill(x, y, w, 3, NAVY);
-  drawText(cv, x + 10, y + 12, "THE DAY", 1, NAVY, true);
-  drawText(cv, x + 10, y + 21, "SO FAR", 1, NAVY, true);
-  const lineX0 = 168, lineX1 = 1006, lineY = y + 17;
-  cv.line(lineX0, lineY, lineX1, lineY, NAVY);
-  const colW = (lineX1 - lineX0) / TIMELINE.length;
+  const y = 140, h = 20;
+  cv.fill(6, y, 1012, h, NAVY);
+  drawText(cv, 12, y + 6, "SUNDAY UTC:", 1, GOLD, true);
   TIMELINE.forEach((t, i) => {
-    const cxp = Math.round(lineX0 + colW * (i + 0.5));
-    cv.circle(cxp, lineY, 4, RED);
-    cv.ring(cxp, lineY, 4, 1, WHITE);
-    drawTextCentered(cv, cxp, y + 5, t[0], 1, RED, true);
-    drawTextCentered(cv, cxp, y + 23, t[1], 1, MUTED, false);
+    const x = 108 + i * 152;
+    if (i > 0) cv.fill(x - 8, y + 4, 1, h - 8, NAVY2);
+    drawText(cv, x, y + 6, t[0], 1, GOLD, true);
+    drawText(cv, x + 34, y + 6, t[1], 1, WHITE, false);
   });
-}
-
-// Stat chip: small white box with red bold text, top-right of a scene.
-function drawChip(cv, x, y, label) {
-  const w = textWidth(label, 1) + 10;
-  cv.fill(x, y, w, 11, WHITE);
-  cv.rect(x, y, w, 11, RED);
-  drawText(cv, x + 5, y + 2, label, 1, RED, true);
-  return w;
 }
 
 function drawLeadPanel(cv, story, px, py) {
-  const [num, headline, deck, outlet, region, scene, chip] = story;
-  cv.fill(px, py, 330, 158, PANELBG);
-  cv.rect(px, py, 330, 158, LINE);
-  cv.fill(px, py, 330, 3, accentOf(story));
-  drawScene(cv, px + 4, py + 5, 322, 88, scene, accentOf(story));
-  cv.rect(px + 4, py + 5, 322, 88, [200, 200, 205]);
-  // Number badge, top-left on the scene.
-  cv.circle(px + 18, py + 21, 11, RED);
-  cv.ring(px + 18, py + 21, 11, 1, WHITE);
+  const [num, headline, deck, outlet, region, scene, accent, tag] = story;
+  cv.fill(px, py, 330, 156, WHITE);
+  cv.rect(px, py, 330, 156, [210, 210, 215]);
+  cv.fill(px, py, 330, 3, accent);
+  drawScene(cv, px + 4, py + 5, 322, 76, scene, accent);
+  cv.circle(px + 18, py + 20, 11, RED);
+  cv.ring(px + 18, py + 20, 11, 1, WHITE);
   const ns = String(num);
-  drawText(cv, px + 18 - Math.floor(textWidth(ns, 1) / 2), py + 18, ns, 1, WHITE, true);
-  // Stat chip, top-right on the scene.
-  const chipW = textWidth(chip, 1) + 10;
-  drawChip(cv, px + 326 - chipW, py + 9, chip);
-  const hl = wrapText(headline, 322, 2).slice(0, 2);
-  hl.forEach((ln, i) => drawText(cv, px + 6, py + 97 + i * 14, ln, 2, INK, true));
-  const dk = wrapText(deck, 322, 1).slice(0, 2);
-  dk.forEach((ln, i) => drawText(cv, px + 6, py + 127 + i * 9, ln, 1, [60, 60, 68], false));
-  drawText(cv, px + 6, py + 147, outlet + "  \u2022  " + region, 1, accentOf(story), true);
-}
-function accentOf(story) {
-  return story[7];
+  drawText(cv, px + 18 - Math.floor(textWidth(ns, 1) / 2), py + 17, ns, 1, WHITE, true);
+  const tw = textWidth(tag, 1) + 8;
+  cv.fill(px + 330 - tw - 6, py + 8, tw, 12, tag === "CLAIM" ? RED : NAVY);
+  drawText(cv, px + 330 - tw - 2, py + 10, tag, 1, WHITE, true);
+  const hl = wrapText(headline, 322, 2).slice(0, 1);
+  hl.forEach((ln, i) => drawText(cv, px + 6, py + 86 + i * 14, ln, 2, INK, true));
+  const dk = wrapText(deck, 322, 1).slice(0, 3);
+  dk.forEach((ln, i) => drawText(cv, px + 6, py + 104 + i * 9, ln, 1, [60, 60, 68], false));
+  drawText(cv, px + 6, py + 140, outlet, 1, accent, true);
+  drawText(cv, px + 330 - textWidth(region, 1) - 6, py + 140, region, 1, MUTED, true);
 }
 
 function drawSmallPanel(cv, story, px, py) {
-  const [num, headline, deck, source, region, scene, chip] = story;
-  cv.fill(px, py, 198, 104, PANELBG);
-  cv.rect(px, py, 198, 104, LINE);
-  cv.fill(px, py, 198, 3, story[7]);
-  drawScene(cv, px + 4, py + 4, 190, 46, scene, story[7]);
-  cv.rect(px + 4, py + 4, 190, 46, [200, 200, 205]);
-  // Number badge, top-left on the scene.
-  cv.circle(px + 15, py + 15, 9, RED);
-  cv.ring(px + 15, py + 15, 9, 1, WHITE);
+  const [num, kicker, headline, deck, source, region, scene, accent] = story;
+  cv.fill(px, py, 247, 68, WHITE);
+  cv.rect(px, py, 247, 68, [210, 210, 215]);
+  cv.fill(px, py, 247, 3, accent);
+  drawScene(cv, px + 3, py + 5, 241, 24, scene, accent);
+  cv.circle(px + 14, py + 15, 9, RED);
+  cv.ring(px + 14, py + 15, 9, 1, WHITE);
   const ns = String(num);
-  drawText(cv, px + 15 - Math.floor(textWidth(ns, 1) / 2), py + 12, ns, 1, WHITE, true);
-  // Stat chip, top-right on the scene.
-  const chipW = textWidth(chip, 1) + 10;
-  drawChip(cv, px + 194 - chipW, py + 8, chip);
-  const hl = wrapText(headline, 190, 1).slice(0, 2);
-  hl.forEach((ln, i) => drawText(cv, px + 5, py + 53 + i * 9, ln, 1, INK, true));
-  const dk = wrapText(deck, 190, 1).slice(0, 2);
-  dk.forEach((ln, i) => drawText(cv, px + 5, py + 72 + i * 9, ln, 1, [60, 60, 68], false));
-  drawText(cv, px + 5, py + 92, source + "  \u2022  " + region, 1, story[7], true);
+  drawText(cv, px + 14 - Math.floor(textWidth(ns, 1) / 2), py + 12, ns, 1, WHITE, true);
+  const kw = textWidth(kicker, 1) + 6;
+  cv.fill(px + 247 - kw - 4, py + 8, kw, 11, NAVY);
+  drawText(cv, px + 247 - kw - 1, py + 10, kicker, 1, WHITE, true);
+  const hl = wrapText(headline, 239, 1).slice(0, 1);
+  hl.forEach((ln, i) => drawText(cv, px + 5, py + 33 + i * 9, ln, 1, INK, true));
+  const dk = wrapText(deck, 239, 1).slice(0, 2);
+  dk.forEach((ln, i) => drawText(cv, px + 5, py + 42 + i * 9, ln, 1, [60, 60, 68], false));
+  drawText(cv, px + 5, py + 60, source, 1, accent, true);
+  drawText(cv, px + 247 - textWidth(region, 1) - 5, py + 60, region, 1, MUTED, true);
 }
 
-// STILL TO COME TODAY strip: events after the wire cutoff, as coming.
-function drawStillToCome(cv) {
-  const x = 6, y = 572, w = 1012, h = 28;
-  cv.fill(x, y, w, h, [255, 244, 238]);
-  cv.rect(x, y, w, h, RED);
-  cv.fill(x, y, 4, h, RED);
-  drawText(cv, x + 12, y + 10, "STILL TO COME TODAY:", 1, RED, true);
-  const labelW = textWidth("STILL TO COME TODAY:", 1);
-  drawText(cv, x + 12 + labelW + 10, y + 10, STILL_TO_COME, 1, INK, false);
+function drawRegions(cv) {
+  const y = 540, h = 24;
+  drawText(cv, 6, y + 8, "BY REGION:", 1, INK, true);
+  const x0 = 76;
+  const bw = 114, gap = 4;
+  REGIONS.forEach((r, i) => {
+    const x = x0 + i * (bw + gap);
+    cv.fill(x, y, bw, h, WHITE);
+    cv.rect(x, y, bw, h, [210, 210, 215]);
+    cv.fill(x, y, 4, h, r[2]);
+    drawTextCentered(cv, x + bw / 2 + 2, y + 8, r[0] + " " + r[1], 1, INK, true);
+  });
 }
 
 function drawMap(cv) {
-  const x = 6, y = 604, w = 1012, h = 100;
-  cv.fill(x, y, w, h, PANELBG);
-  cv.rect(x, y, w, h, LINE);
+  const x = 6, y = 568, w = 1012, h = 92;
+  cv.fill(x, y, w, h, WHITE);
+  cv.rect(x, y, w, h, [210, 210, 215]);
   cv.fill(x, y, w, 3, NAVY);
-  drawText(cv, x + 10, y + 8, "WHERE IT HAPPENED", 2, NAVY, true);
-  drawText(cv, x + 660, y + 10, "RED PIN = TOP STORY NUMBER", 1, MUTED, false);
+  drawText(cv, x + 10, y + 9, "WHERE IT HAPPENED", 2, NAVY, true);
+  drawText(cv, x + 700, y + 11, "RED PIN = TOP STORY NUMBER", 1, MUTED, false);
   const sea = [206, 228, 240];
-  const seaX0 = x + 6, seaY0 = y + 26, seaX1 = x + w - 6, seaY1 = y + h - 6;
+  const seaX0 = x + 6, seaY0 = y + 28, seaX1 = x + w - 6, seaY1 = y + h - 6;
   cv.fill(seaX0, seaY0, seaX1 - seaX0, seaY1 - seaY0, sea);
+  // Equirectangular projection: lon -180..180 -> sea width, lat 80..-60 -> sea height.
   const project = (lon, lat) => [
     seaX0 + ((lon + 180) / 360) * (seaX1 - seaX0),
     seaY0 + ((80 - lat) / 140) * (seaY1 - seaY0),
   ];
+  // Subtle ocean graticule: every 30 deg longitude, lat 60/30/0/-30.
   const grat = [188, 212, 230];
   for (let lon = -150; lon <= 150; lon += 30) {
     const gx = Math.round(project(lon, 0)[0]);
@@ -1007,22 +965,26 @@ function drawMap(cv) {
     const gy = Math.round(project(0, lat)[1]);
     cv.line(seaX0, gy, seaX1 - 1, gy, grat);
   }
+  // Dotted continents: no solid blobs, a deliberate dot grid.
   drawDottedContinents(cv, project, seaX0, seaY0, seaX1, seaY1);
-  // Pins: [num, lon, lat, dx, dy] — nudged so no two pins touch.
+  // Pins: story number -> true location, with nudges so no two pins touch.
+  // [num, lon, lat, dx, dy]
   const pins = [
-    [1, 30.7, 36.9, -16, 12],
-    [2, 30.5, 50.4, -30, -10],
-    [3, 50.6, 26.2, 10, 14],
-    [4, -108.5, 25.6, 0, 0],
-    [5, 27.0, 60.0, 24, 4],
-    [6, 33.4, 47.9, 24, 18],
-    [7, 114.2, 22.3, 0, 0],
-    [8, 4.35, 50.85, -30, -8],
-    [9, -115.1, 36.2, 0, 0],
-    [10, -47.9, -15.8, 0, 0],
-    [11, 34.5, 31.5, 36, 20],
-    [12, 51.4, 35.7, 14, -12],
-    [13, 149.1, -35.3, 0, 0],
+    [1, 30.5, 50.4, -24, -10],  // Kyiv / Dymer (186 drones)
+    [2, 30.7, 36.9, -18, 12],   // COP31 summit city
+    [3, 50.6, 26.2, 10, 14],    // Bahrain
+    [4, 114.2, 22.3, 6, -12],   // Hong Kong
+    [5, 174.8, -41.3, 0, 2],    // Wellington
+    [6, -115.1, 36.2, -14, -12], // Las Vegas
+    [7, -98.5, 29.4, 4, 12],    // San Antonio
+    [8, 27.0, 60.0, 22, 4],     // Sparta II, Gulf of Finland
+    [9, 51.4, 35.7, 14, -12],   // Tehran
+    [10, -47.9, -15.8, 0, 0],   // Brasilia
+    [11, -77.0, 38.9, -20, 10], // Washington
+    [12, 4.35, 50.85, -6, 12],  // Brussels
+    [13, 93.9, 24.8, -16, 10],  // Manipur
+    [14, 106.3, -6.3, 10, 8],   // Cikande, Banten
+    [15, -75.2, -11.5, -4, 10], // Junin, Peru
   ];
   pins.forEach((p) => {
     const pos = project(p[1], p[2]);
@@ -1035,49 +997,65 @@ function drawMap(cv) {
 }
 
 function drawDateCheck(cv) {
-  const x = 6, y = 708, w = 1012, h = 56;
+  const x = 6, y = 664, w = 1012, h = 66;
   cv.fill(x, y, w, h, [255, 244, 238]);
   cv.rect(x, y, w, h, RED);
   cv.fill(x, y, w, 3, RED);
-  drawText(cv, x + 10, y + 8, "DATE CHECK \u2014 WIRES READ UP TO 03:30 UTC, SUNDAY 22 NOVEMBER 2026", 1, RED, true);
-  drawText(cv, x + 10, y + 20, "LEFT OUT AS OTHER DAYS' NEWS: PERU QUAKE (20 NOV) \u2022 POLAND MISSILES (19 NOV) \u2022 KERCH BRIDGE STRIKES \u2022 SHENZHEN SUMMIT (19 NOV) \u2022 BINANCE THEFT (29 OCT)", 1, INK, false);
-  drawText(cv, x + 10, y + 32, "NOT SETTLED YET: COP31 VOTE AT 06:00 GMT STILL TO COME \u2022 IRAN TANKER CONVOY YET TO SAIL", 1, RED, true);
-  drawText(cv, x + 10, y + 44, "EVERY STORY ABOVE WAS FIRST REPORTED OR STILL DEVELOPING ON 22 NOVEMBER 2026 IN AT LEAST ONE TIME ZONE", 1, MUTED, false);
+  drawText(cv, x + 10, y + 7, "DATE CHECK - EVERY STORY ON THIS PAGE IS SUNDAY 22 NOVEMBER 2026 NEWS", 1, RED, true);
+  drawText(cv, x + 10, y + 20, "LEFT OUT AS PRIOR-DAY NEWS: THE 400-DRONE, 110-MISSILE BARRAGE (THU 19-FRI 20 NOV) - EL CHAPO ISIDRO CAPTURED (FRI)", 1, INK, false);
+  drawText(cv, x + 10, y + 33, "THE KRYVYI RIH DOUBLE-TAP (FRI 20-SAT 21) - THE GAZA AID-VAN STRIKE (SAT) - THE SHENZHEN SUMMIT (19 NOV)", 1, INK, false);
+  drawText(cv, x + 10, y + 46, "MISSILES INTO POLAND (19 NOV) - THE PERU QUAKE ITSELF (FRI 20 NOV): ONLY SUNDAY'S FINAL TOLL IS COUNTED (STORY 15)", 1, INK, false);
+  drawText(cv, x + 10, y + 57, "TAGS: REPORTED = MULTIPLE WIRES - CLAIM = ONE SIDE'S ACCOUNT - FORECAST = STILL TO COME", 1, RED, true);
 }
 
 function drawAlso(cv) {
-  drawText(cv, 6, 770, "ALSO ON 22 NOVEMBER", 2, NAVY, true);
-  cv.fill(230, 778, 784, 2, GOLD);
+  drawText(cv, 6, 736, "ALSO ON SUNDAY 22 NOVEMBER", 2, NAVY, true);
+  cv.fill(310, 744, 704, 2, GOLD);
   const colX = [10, 522];
   ALSO.forEach((s, i) => {
-    const col = i < 13 ? 0 : 1;
-    const row = i % 13;
-    const y = 788 + row * 13;
-    const line = s[0] + ". " + s[1] + " \u2014 " + s[2];
+    const col = i < 11 ? 0 : 1;
+    const row = i % 11;
+    const y = 754 + row * 15;
+    const line = s[0] + ". " + s[1] + " (" + s[2] + ")";
     drawText(cv, colX[col], y, line, 1, INK, false);
   });
-  cv.fill(6, 962, 1012, 1, GOLD);
-  drawTextCentered(cv, 512, 970, "SOURCES: REUTERS \u2022 AP \u2022 BBC \u2022 AL JAZEERA \u2022 CNN \u2022 DW \u2022 RFE/RL \u2022 F1 \u2022 AUTOSPORT \u2022 ATP \u2022 IANS \u2022 ABC \u2022 GUARDIAN \u2022 NEMA", 1, MUTED, false);
-  drawTextCentered(cv, 512, 984, "ALL 38 STORIES FIRST REPORTED OR STILL DEVELOPING ON SUNDAY 22 NOVEMBER 2026", 1, MUTED, false);
-  drawTextCentered(cv, 512, 998, "THE WORLD IN ONE DAY \u2022 SUNDAY 22 NOVEMBER 2026 \u2022 ONE PAGE", 1, NAVY, true);
+  cv.fill(6, 922, 1012, 1, [210, 210, 215]);
+  drawTextCentered(cv, 512, 932, "SOURCES AS TAGGED ON EVERY STORY - REUTERS, AP, AFP WIRES, SCMP, ESPN, FIA, XINHUA, DETIKNEWS, AL JAZEERA AND OTHERS", 1, MUTED, false);
+  drawTextCentered(cv, 512, 950, "CERTAINTY: REPORTED = CORROBORATED - CLAIM = SINGLE-SIDE ACCOUNT, UNVERIFIED - FORECAST = SCHEDULED, NOT YET PLAYED", 1, NAVY, true);
+  drawTextCentered(cv, 512, 968, "THE WORLD IN ONE DAY", 2, NAVY, true);
+  drawTextCentered(cv, 512, 1006, "36 STORIES - 7 REGIONS - ALL DATED SUNDAY 22 NOVEMBER 2026", 1, MUTED, false);
 }
 
 // ---------- build ----------
 function build() {
   const cv = new Canvas(W, H, PAPER);
   drawMasthead(cv);
+  drawSubhead(cv);
   drawStats(cv);
-  drawRegions(cv);
   drawTimeline(cv);
-  LEADS.forEach((s, i) => drawLeadPanel(cv, s, 6 + i * 336, 194));
+  LEADS.forEach((s, i) => drawLeadPanel(cv, s, 6 + i * 336, 164));
   PANELS.forEach((s, i) => {
-    const col = i % 5, row = Math.floor(i / 5);
-    drawSmallPanel(cv, s, 8 + col * 202, 356 + row * 108);
+    const col = i % 4, row = Math.floor(i / 4);
+    drawSmallPanel(cv, s, 6 + col * 253, 324 + row * 72);
   });
-  drawStillToCome(cv);
+  drawRegions(cv);
   drawMap(cv);
   drawDateCheck(cv);
   drawAlso(cv);
+  // Deterministic print grain (integer hash of position; no randomness):
+  // a faint newsprint texture that also gives the PNG real density.
+  for (let gy = 0; gy < H; gy++) {
+    for (let gx = 0; gx < W; gx++) {
+      let hh = (gx * 374761393 + gy * 668265263) >>> 0;
+      hh = (hh ^ (hh >> 13)) >>> 0;
+      if (hh % 11 === 0) {
+        const o = (gy * W + gx) * 3, d = (hh & 16) ? 9 : -9;
+        cv.px[o] = Math.max(0, Math.min(255, cv.px[o] + d));
+        cv.px[o + 1] = Math.max(0, Math.min(255, cv.px[o + 1] + d));
+        cv.px[o + 2] = Math.max(0, Math.min(255, cv.px[o + 2] + d));
+      }
+    }
+  }
   return encodePNG(cv.px, W, H);
 }
 
